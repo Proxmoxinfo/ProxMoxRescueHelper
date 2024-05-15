@@ -117,7 +117,7 @@ SOFTWARE.
 Communities and Support
 
     Telegram: Proxmox_UA
-    GitHub: Proxmoxinfo/ProxMoxRescueHelper
+    GitHub: https://github.com/Proxmoxinfo/ProxMoxRescueHelper
     Website: proxmox.info
 
 This script is designed for installing Proxmox products in rescue mode on Hetzner servers.
