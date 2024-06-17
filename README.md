@@ -35,15 +35,15 @@ Examples
 
     Install Proxmox Virtual Environment with a specified VNC password:    
 
-        ./proxmox_installer.sh -ve -p yourVNCpassword
+       ./ProxRescue.sh -ve -p yourVNCpassword
 
     Install Proxmox Backup Server using UEFI and specifying the port for noVNC:
 
-        ./proxmox_installer.sh -bs -uefi -vport 8081
+       ./ProxRescue.sh -bs -uefi -vport 8081
 
     Run the installed system in UEFI mode:
 
-        ./proxmox_installer.sh -run -uefi
+       ./ProxRescue.sh -run -uefi
 
 Main Menu
 

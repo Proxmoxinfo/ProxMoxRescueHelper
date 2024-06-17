@@ -19,10 +19,8 @@
 # Этот скрипт предназначен для установки продуктов Proxmox в режиме восстановления на серверах Hetzner.
 # ============================================================================================
 
-VERSION_SCRIPT="0.51"
+VERSION_SCRIPT="0.6"
 SCRIPT_TYPE="self-contained"
-
-
 
 logo='
 ██████  ██████   ██████  ██   ██ ███    ███  ██████  ██   ██    ██ ███    ██ ███████  ██████  
@@ -116,12 +114,18 @@ print_logo() {
 }
 
 get_network_info() {
-    INTERFACE_NAME=$(udevadm info -q property /sys/class/net/eth0 | grep "ID_NET_NAME_PATH=" | cut -d'=' -f2)
+    INTERFACE_NAME=$(udevadm info -q property /sys/class/net/$(ls /sys/class/net | grep -E '^(eth|ens|enp)') | grep "ID_NET_NAME_PATH=" | cut -d'=' -f2)
+    if [ -z "$INTERFACE_NAME" ]; then
+        echo "No valid network interface found."
+        exit 1
+    fi
+
     IP_CIDR=$(ip addr show $INTERFACE_NAME | grep "inet\b" | awk '{print $2}')
     GATEWAY=$(ip route | grep default | awk '{print $3}')
     IP_ADDRESS=$(echo "$IP_CIDR" | cut -d'/' -f1)
     CIDR=$(echo "$IP_CIDR" | cut -d'/' -f2)
 }
+
 
 check_and_install_packages() {
     local required_packages=(curl sshpass)
@@ -211,7 +215,7 @@ run_qemu() {
     QEMU_DISK_ARGS=""
     DISK_INDEX=0
     for DISK in $DISKS; do
-        QEMU_DISK_ARGS="$QEMU_DISK_ARGS -drive file=/dev/$DISK,format=raw,index=$DISK_INDEX,media=disk"
+        QEMU_DISK_ARGS="$QEMU_DISK_ARGS -drive file=/dev/$DISK,format=raw,if=virtio,index=$DISK_INDEX,media=disk"
         DISK_INDEX=$((DISK_INDEX+1))
     done
     QEMU_COMMON_ARGS="-daemonize -enable-kvm -m $QEMU_MEMORY -vnc :0,password=on -monitor telnet:127.0.0.1:4444,server,nowait"
@@ -219,7 +223,7 @@ run_qemu() {
     	QEMU_COMMON_ARGS="-bios /usr/share/ovmf/OVMF.fd $QEMU_COMMON_ARGS"
     fi
     if [ "$task" == "install" ]; then
-        QEMU_CDROM_ARGS="-cdrom /tmp/proxmox.iso -boot d"
+        QEMU_CDROM_ARGS="-drive file=/tmp/proxmox.iso,index=0,media=cdrom -boot d"
         qemu-system-x86_64 $QEMU_COMMON_ARGS $QEMU_DISK_ARGS $QEMU_CDROM_ARGS
         echo -e "\nQemu running...."
         sleep 2
