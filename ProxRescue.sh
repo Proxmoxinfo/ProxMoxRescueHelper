@@ -208,19 +208,45 @@ EOF
     fi
 }
 
+select_disks() {
+    echo "Available disks:"
+    lsblk -dn -o NAME,TYPE,SIZE | awk '$2 == "disk" {print NR ": " $1 " (" $3 ")"}'
+    echo "Please enter the numbers of the disks you want to use, separated by spaces:"
+    read -r selected_disks
+
+    QEMU_DISK_ARGS=""
+    for disk_number in $selected_disks; do
+        disk_name=$(lsblk -dn -o NAME,TYPE | awk '$2 == "disk" {print $1}' | sed -n "${disk_number}p")
+        if [ -n "$disk_name" ]; then
+            QEMU_DISK_ARGS="$QEMU_DISK_ARGS -drive file=/dev/$disk_name,format=raw,if=virtio,media=disk"
+        else
+            echo "Invalid disk number: $disk_number"
+        fi
+    done
+
+    if [ -z "$QEMU_DISK_ARGS" ]; then
+        echo "No valid disks selected. Exiting."
+        exit 1
+    fi
+}
+
+
+
 run_qemu() {
     get_network_info
     local task=$1
-    DISKS=$(lsblk -dn -o NAME,TYPE -e 1,7,11,14,15 | awk '$2 == "disk" {print $1}')
-    QEMU_DISK_ARGS=""
-    DISK_INDEX=0
-    for DISK in $DISKS; do
-        QEMU_DISK_ARGS="$QEMU_DISK_ARGS -drive file=/dev/$DISK,format=raw,if=virtio,index=$DISK_INDEX,media=disk"
-        DISK_INDEX=$((DISK_INDEX+1))
-    done
+    if [ -z "$QEMU_DISK_ARGS" ]; then
+        DISKS=$(lsblk -dn -o NAME,TYPE -e 1,7,11,14,15 | awk '$2 == "disk" {print $1}')
+        DISK_INDEX=0
+        for DISK in $DISKS; do
+            QEMU_DISK_ARGS="$QEMU_DISK_ARGS -drive file=/dev/$DISK,format=raw,if=virtio,index=$DISK_INDEX,media=disk"
+            DISK_INDEX=$((DISK_INDEX+1))
+        done
+    fi
+
     QEMU_COMMON_ARGS="-daemonize -enable-kvm -m $QEMU_MEMORY -vnc :0,password=on -monitor telnet:127.0.0.1:4444,server,nowait"
     if [ "$USE_UEFI" == "true" ]; then
-    	QEMU_COMMON_ARGS="-bios /usr/share/ovmf/OVMF.fd $QEMU_COMMON_ARGS"
+        QEMU_COMMON_ARGS="-bios /usr/share/ovmf/OVMF.fd $QEMU_COMMON_ARGS"
     fi
     if [ "$task" == "install" ]; then
         QEMU_CDROM_ARGS="-drive file=/tmp/proxmox.iso,index=0,media=cdrom -boot d"
@@ -292,6 +318,7 @@ run_qemu() {
         done
     fi   
 }
+
 
 select_proxmox_product_and_version() {
     if [ -n "$PRODUCT_CHOICE" ]; then
@@ -412,6 +439,7 @@ declare -A options=(
     [5]="Change VNC Password"
     [6]="Reboot"
     [7]="Exit"
+    [8]="Manually select disks for QEMU"
 )
 
 declare -A actions=(
@@ -422,9 +450,12 @@ declare -A actions=(
     [5]="changeVncPassword"
     [6]="reboot_server"
     [7]="exitScript"
+    [8]="select_disks"
 )
 
-ordered_keys=("1" "2" "3" "4" "5" "6" "7")
+ordered_keys=("1" "2" "3" "4" "5" "6" "7" "8")
+
+
 
 show_menu() {
     echo "Welcome to Proxmox products installer in Rescue Mode for Hetzner" 
