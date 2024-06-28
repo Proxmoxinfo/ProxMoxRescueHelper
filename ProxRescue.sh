@@ -6,20 +6,20 @@
 # ██████  ██████  ██    ██   ███   ██ ████ ██ ██    ██   ███      ██ ██ ██  ██ █████   ██    ██ 
 # ██      ██   ██ ██    ██  ██ ██  ██  ██  ██ ██    ██  ██ ██     ██ ██  ██ ██ ██      ██    ██ 
 # ██      ██   ██  ██████  ██   ██ ██      ██  ██████  ██   ██ ██ ██ ██   ████ ██       ██████  
-#
+# 
 # Proxmox Products Installer in Rescue Mode for Hetzner
-#
+# 
 # © 2024 Proxmox UA www.proxmox.info. Все права защищены.
-#
+# 
 # Сообщества и поддержка:
 # - Telegram:https://t.me/Proxmox_UA
 # - GitHub: https://github.com/Proxmoxinfo/ProxMoxRescueHelper
 # - Website: https://proxmox.info
-#
+# 
 # Этот скрипт предназначен для установки продуктов Proxmox в режиме восстановления на серверах Hetzner.
 # ============================================================================================
 
-VERSION_SCRIPT="0.6"
+VERSION_SCRIPT="0.65"
 SCRIPT_TYPE="self-contained"
 
 logo='
@@ -128,7 +128,7 @@ get_network_info() {
 
 
 check_and_install_packages() {
-    local required_packages=(curl sshpass)
+    local required_packages=(curl sshpass dialog)
     local missing_packages=()
     for package in "${required_packages[@]}"; do
         if ! dpkg -l | grep -qw $package; then
@@ -149,6 +149,7 @@ check_and_install_packages() {
         echo "$logo"
     fi
 }
+
 
 install_novnc() {
     echo "Checking for noVNC installation..."
@@ -209,42 +210,44 @@ EOF
 }
 
 select_disks() {
-    echo "Available disks:"
-    lsblk -dn -o NAME,TYPE,SIZE | awk '$2 == "disk" {print NR ": " $1 " (" $3 ")"}'
-    echo "Please enter the numbers of the disks you want to use, separated by spaces:"
-    read -r selected_disks
-
-    QEMU_DISK_ARGS=""
-    for disk_number in $selected_disks; do
-        disk_name=$(lsblk -dn -o NAME,TYPE | awk '$2 == "disk" {print $1}' | sed -n "${disk_number}p")
-        if [ -n "$disk_name" ]; then
-            QEMU_DISK_ARGS="$QEMU_DISK_ARGS -drive file=/dev/$disk_name,format=raw,if=virtio,media=disk"
-        else
-            echo "Invalid disk number: $disk_number"
-        fi
+    local disk_options=()
+    local disk_list=$(lsblk -dn -o NAME,TYPE,SIZE -e 1,7,11,14,15 | grep -E 'nvme|sd|vd' | awk '$2 == "disk" {print $1 " " $3}')
+    local IFS=$'\n'
+    for disk in $disk_list; do
+        local disk_name=$(echo $disk | awk '{print $1}')
+        local disk_size=$(echo $disk | awk '{print $2}')
+        disk_options+=("$disk_name" "$disk_size" on)  # Все диски по умолчанию включены
     done
-
-    if [ -z "$QEMU_DISK_ARGS" ]; then
-        echo "No valid disks selected. Exiting."
-        exit 1
+    local selected_disks_output
+    selected_disks_output=$(dialog --checklist "Select disks to use for QEMU:" 15 50 8 "${disk_options[@]}" 3>&1 1>&2 2>&3 3>&-)    
+    if [ $? -eq 0 ] && [ -n "$selected_disks_output" ]; then
+        QEMU_DISK_ARGS=""
+        local disk_index=0        
+        IFS=' ' read -ra selected_disks <<< "$selected_disks_output"
+        for disk_name in "${selected_disks[@]}"; do
+            QEMU_DISK_ARGS+="-drive file=/dev/$disk_name,format=raw,if=virtio,index=$disk_index,media=disk "
+            disk_index=$((disk_index + 1))
+        done
+    else
+        echo "Disk selection cancelled. No changes made."
     fi
+    print_logo
 }
-
-
 
 run_qemu() {
     get_network_info
     local task=$1
-    if [ -z "$QEMU_DISK_ARGS" ]; then
-        DISKS=$(lsblk -dn -o NAME,TYPE -e 1,7,11,14,15 | awk '$2 == "disk" {print $1}')
-        DISK_INDEX=0
-        for DISK in $DISKS; do
-            QEMU_DISK_ARGS="$QEMU_DISK_ARGS -drive file=/dev/$DISK,format=raw,if=virtio,index=$DISK_INDEX,media=disk"
-            DISK_INDEX=$((DISK_INDEX+1))
+    if [ -z "$QEMU_DISK_ARGS" ]; then        
+        local disks=$(lsblk -dn -o NAME,TYPE -e 1,7,11,14,15 | grep -E 'nvme|sd|vd' | awk '$2 == "disk" {print $1}')
+        local disk_index=0
+        for disk in $disks; do
+            QEMU_DISK_ARGS+=" -drive file=/dev/$disk,format=raw,if=virtio,index=$disk_index,media=disk"
+            disk_index=$((disk_index + 1))
         done
     fi
 
     QEMU_COMMON_ARGS="-daemonize -enable-kvm -m $QEMU_MEMORY -vnc :0,password=on -monitor telnet:127.0.0.1:4444,server,nowait"
+        
     if [ "$USE_UEFI" == "true" ]; then
         QEMU_COMMON_ARGS="-bios /usr/share/ovmf/OVMF.fd $QEMU_COMMON_ARGS"
     fi
@@ -258,7 +261,7 @@ run_qemu() {
         echo "Use VNC client or Use Web Browser for connect to your server."
         echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
         echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
-        echo -e "\nYou password for connect: \033[1m$VNC_PASSWORD\033[0m\n" # Выделение пароля
+        echo -e "\nYou password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
         ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:5900 --listen $IP_ADDRESS:$NOVNC_PORT > /dev/null 2>&1 &
         NOVNC_PID=$!
         while true; do
@@ -294,7 +297,7 @@ run_qemu() {
         echo "Use VNC client or Use Web Browser for connect to your server."
         echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
         echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
-        echo -e "\nYou password for connect: \033[1m$VNC_PASSWORD\033[0m\n" # Выделение пароля
+        echo -e "\nYou password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
         ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:5900 --listen $IP_ADDRESS:$NOVNC_PORT > /dev/null 2>&1 &
         NOVNC_PID=$!
         while true; do
@@ -318,7 +321,6 @@ run_qemu() {
         done
     fi   
 }
-
 
 select_proxmox_product_and_version() {
     if [ -n "$PRODUCT_CHOICE" ]; then
@@ -453,10 +455,7 @@ declare -A actions=(
     [8]="select_disks"
 )
 
-
 ordered_keys=("1" "2" "3" "4" "5" "6" "7" "8")
-
-
 
 show_menu() {
     echo "Welcome to Proxmox products installer in Rescue Mode for Hetzner" 
