@@ -1,11 +1,10 @@
 # ProxRescue
-Proxmox Products Installer in Rescue Mode for Hetzner
 
+Proxmox Products Installer in Rescue Mode for Hetzner
 
 Description
 
 This script is designed to install Proxmox products (Proxmox Virtual Environment, Proxmox Backup Server, Proxmox Mail Gateway) in rescue mode on Hetzner servers. It allows you to select the product to install, configure VNC connection settings, and use UEFI if needed. Additionally, the script can launch the installed Proxmox system, allowing you to connect via VNC or noVNC.
-
 
 Requirements
 
@@ -122,7 +121,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE. 
+SOFTWARE.
 
 Communities and Support
 
