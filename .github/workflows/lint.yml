@@ -67,10 +67,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install actionlint
-        run: bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
       - name: Run actionlint
-        run: ./actionlint
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
 
   markdownlint:
     name: Markdown Lint
