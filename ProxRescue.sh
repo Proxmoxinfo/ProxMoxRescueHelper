@@ -604,7 +604,8 @@ runInstalledSystem() {
 
 changeVncPassword() {
     echo "Enter new password for VNC:"
-    read -r VNC_PASSWORD
+    read -rs VNC_PASSWORD
+    echo
     echo "VNC password has been updated."
 }
 
