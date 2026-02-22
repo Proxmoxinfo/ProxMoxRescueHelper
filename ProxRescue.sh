@@ -362,6 +362,18 @@ run_qemu() {
         fi
     fi
 
+    if [ "$DISK_WARNING_ENABLED" = "true" ]; then
+        echo "WARNING: QEMU will have direct access to the following disks:" >&2
+        for arg in "${QEMU_DISK_ARGS[@]}"; do
+            echo "  $arg" >&2
+        done
+        read -rp "Continue? [y/N]: " answer
+        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+            echo "Aborted by user."
+            return 1
+        fi
+    fi
+
     local QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:$QEMU_MONITOR_PORT,server,nowait")
 
     if [ "$USE_UEFI" = "true" ]; then
