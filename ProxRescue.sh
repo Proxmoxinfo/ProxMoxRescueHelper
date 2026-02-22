@@ -619,6 +619,12 @@ exitScript() {
     exit 0
 }
 
+cleanup() {
+    kill "$NOVNC_PID" 2>/dev/null || true
+    rm -f /tmp/proxmox_sha256sums /tmp/proxmox_download_$$.iso
+}
+trap cleanup EXIT INT TERM
+
 check_and_install_packages
 install_novnc
 clear_list
