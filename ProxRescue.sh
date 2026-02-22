@@ -290,7 +290,7 @@ EOF
     while true; do
         read -rs -p "To configure the network on your server, enter the root password you set when installing $PRODUCT_NAME: " ROOT_PASSWORD
         local scp_rc=0
-        sshpass -p "$ROOT_PASSWORD" scp -o StrictHostKeyChecking=no -P "$QEMU_SSH_PORT" "$tmp_netcfg" root@127.0.0.1:/etc/network/interfaces || scp_rc=$?
+        sshpass -f <(printf '%s' "$ROOT_PASSWORD") scp -o StrictHostKeyChecking=no -P "$QEMU_SSH_PORT" "$tmp_netcfg" root@127.0.0.1:/etc/network/interfaces || scp_rc=$?
         if [ "$scp_rc" -eq 5 ]; then
             echo "Authorization error. Please check your root password." >&2
         else
@@ -298,7 +298,7 @@ EOF
         fi
     done
     local ssh_rc=0
-    sshpass -p "$ROOT_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$QEMU_SSH_PORT" root@127.0.0.1 "sed -i 's|nameserver.*|nameserver $NAME_SERVER|' /etc/resolv.conf" || ssh_rc=$?
+    sshpass -f <(printf '%s' "$ROOT_PASSWORD") ssh -o StrictHostKeyChecking=no -p "$QEMU_SSH_PORT" root@127.0.0.1 "sed -i 's|nameserver.*|nameserver $NAME_SERVER|' /etc/resolv.conf" || ssh_rc=$?
     if [ "$ssh_rc" -ne 0 ]; then
         echo "Error in change resolv.conf." >&2
     else
