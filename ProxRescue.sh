@@ -612,6 +612,13 @@ select_version() {
 
 download_and_verify_iso() {
     local selected_iso="$1"
+    if [ -f /tmp/proxmox.iso ]; then
+        echo "Found existing /tmp/proxmox.iso"
+        read -r -p "Re-download? (y/N): " answer
+        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+            return 0
+        fi
+    fi
     ISO_URL="https://download.proxmox.com/iso/$selected_iso"
     local tmp_iso="/tmp/proxmox_download_$$.iso"
     echo "Downloading $ISO_URL..."
