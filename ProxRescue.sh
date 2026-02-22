@@ -610,7 +610,8 @@ reboot_server() {
     echo "Are you sure you want to reboot the server? (Y/n)"
     read -r answer
     if [[ $answer =~ ^[Yy]?$ ]]; then
-        echo "Rebooting..."
+        echo "Rebooting in $REBOOT_TIMEOUT seconds..."
+        sleep "$REBOOT_TIMEOUT"
         shutdown -r now
     else
         echo "Reboot canceled. Returning to main menu..."
