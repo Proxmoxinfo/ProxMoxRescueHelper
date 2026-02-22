@@ -353,7 +353,11 @@ wait_for_qemu() {
             echo "QEMU process has stopped unexpectedly." >&2
             kill "$NOVNC_PID" 2>/dev/null || true
             echo "noVNC stopped."
-            reboot_server
+            echo "Options: 1) Return to menu  2) Reboot server"
+            read -r -p "Choice (1/2): " fail_choice
+            case "$fail_choice" in
+                2) reboot_server ;;
+            esac
             break
         fi
         local confirmation=""
