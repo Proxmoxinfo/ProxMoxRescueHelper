@@ -25,6 +25,13 @@ VERSION_SCRIPT="0.70"
 # shellcheck disable=SC2034
 SCRIPT_TYPE="self-contained"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Ports
+QEMU_MONITOR_PORT=4444
+QEMU_VNC_PORT=5900
+QEMU_SSH_PORT=2222
+
 logo='
 ██████  ██████   ██████  ██   ██ ███    ███  ██████  ██   ██    ██ ███    ██ ███████  ██████  
 ██   ██ ██   ██ ██    ██  ██ ██  ████  ████ ██    ██  ██ ██     ██ ████   ██ ██      ██    ██ 
@@ -128,9 +135,9 @@ done
 clear_list() {
     pkill -f novnc_proxy || true
     echo "All noVNC sessions have been terminated."
-    ssh-keygen -R "[127.0.0.1]:2222" || true
-    echo "SSH key cache cleared for 127.0.0.1 port 2222."
-    printf "quit\n" | nc 127.0.0.1 4444 || true
+    ssh-keygen -R "[127.0.0.1]:$QEMU_SSH_PORT" || true
+    echo "SSH key cache cleared for 127.0.0.1 port $QEMU_SSH_PORT."
+    printf "quit\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
     echo "Sent shutdown command to QEMU."
 }
 
@@ -249,7 +256,7 @@ EOF
     while true; do
         read -rs -p "To configure the network on your server, enter the root password you set when installing $PRODUCT_NAME: " ROOT_PASSWORD
         local scp_rc=0
-        sshpass -p "$ROOT_PASSWORD" scp -o StrictHostKeyChecking=no -P 2222 "$tmp_netcfg" root@127.0.0.1:/etc/network/interfaces || scp_rc=$?
+        sshpass -p "$ROOT_PASSWORD" scp -o StrictHostKeyChecking=no -P "$QEMU_SSH_PORT" "$tmp_netcfg" root@127.0.0.1:/etc/network/interfaces || scp_rc=$?
         if [ "$scp_rc" -eq 5 ]; then
             echo "Authorization error. Please check your root password."
         else
@@ -257,13 +264,13 @@ EOF
         fi
     done
     local ssh_rc=0
-    sshpass -p "$ROOT_PASSWORD" ssh -o StrictHostKeyChecking=no -p 2222 root@127.0.0.1 "sed -i 's|nameserver.*|nameserver $NAME_SERVER|' /etc/resolv.conf" || ssh_rc=$?
+    sshpass -p "$ROOT_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$QEMU_SSH_PORT" root@127.0.0.1 "sed -i 's|nameserver.*|nameserver $NAME_SERVER|' /etc/resolv.conf" || ssh_rc=$?
     if [ "$ssh_rc" -ne 0 ]; then
         echo "Error in change resolv.conf."
     else
         echo "resolv.conf updated."
         echo "Shutdown QEMU"
-        printf "system_powerdown\n" | nc 127.0.0.1 4444 || true
+        printf "system_powerdown\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
         reboot_server
     fi
 }
@@ -317,7 +324,7 @@ run_qemu() {
         fi
     fi
 
-    local QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:4444,server,nowait")
+    local QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:$QEMU_MONITOR_PORT,server,nowait")
 
     if [ "$USE_UEFI" = "true" ]; then
         if [ ! -f "/usr/share/ovmf/OVMF.fd" ]; then
@@ -331,13 +338,13 @@ run_qemu() {
         qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_CDROM_ARGS[@]}"
         echo -e "\nQemu running...."
         sleep 2
-        echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 4444 || true
+        echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 "$QEMU_MONITOR_PORT" || true
         print_logo
         echo "Use VNC client or Use Web Browser for connect to your server."
         echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
         echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
         echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
-        ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:5900 --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
+        ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
         NOVNC_PID=$!
         while true; do
             # pgrep is used here because qemu runs with -daemonize (no direct PID)
@@ -352,7 +359,7 @@ run_qemu() {
             read -r -t 5 -p "Installation in progress... Enter 'yes' when complete: " confirmation || true
             if [ "$confirmation" = "yes" ]; then
                 echo "QEMU shutting down...."
-                printf "quit\n" | nc 127.0.0.1 4444 || true
+                printf "quit\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
                 kill "$NOVNC_PID" 2>/dev/null || true
                 echo "noVNC stopped."
                 print_logo
@@ -361,20 +368,20 @@ run_qemu() {
             fi
         done
     elif [ "$task" = "settings" ]; then
-        local QEMU_NETWORK_SETTINGS=(-net "user,hostfwd=tcp::2222-:22" -net nic)
+        local QEMU_NETWORK_SETTINGS=(-net "user,hostfwd=tcp::${QEMU_SSH_PORT}-:22" -net nic)
         qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_NETWORK_SETTINGS[@]}"
     elif [ "$task" = "runsystem" ]; then
         qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" &
         QEMU_PID=$!
         echo -e "\nQemu running...."
         sleep 2
-        echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 4444 || true
+        echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 "$QEMU_MONITOR_PORT" || true
         print_logo
         echo "Use VNC client or Use Web Browser for connect to your server."
         echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
         echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
         echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
-        ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:5900 --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
+        ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
         NOVNC_PID=$!
         while true; do
             if ! kill -0 "$QEMU_PID" 2>/dev/null; then
@@ -388,7 +395,7 @@ run_qemu() {
             read -r -t 5 -p "System running... Enter 'shutdown' to stop QEMU: " confirmation || true
             if [ "$confirmation" = "shutdown" ]; then
                 echo "QEMU shutting down manually..."
-                printf "system_powerdown\n" | nc 127.0.0.1 4444 || true
+                printf "system_powerdown\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
                 kill "$NOVNC_PID" 2>/dev/null || true
                 echo "noVNC stopped."
                 reboot_server
