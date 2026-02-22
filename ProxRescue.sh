@@ -92,7 +92,7 @@ show_help() {
 validate_ipv4() {
     local ip="$1"
     local IFS='.'
-    read -ra octets <<< "$ip"
+    read -ra octets <<<"$ip"
     [ "${#octets[@]}" -eq 4 ] || return 1
     for octet in "${octets[@]}"; do
         [[ "$octet" =~ ^[0-9]+$ ]] || return 1
@@ -466,9 +466,9 @@ run_qemu_runsystem() {
 
 run_qemu() {
     case "$1" in
-        install)    run_qemu_install ;;
-        settings)   run_qemu_settings ;;
-        runsystem)  run_qemu_runsystem ;;
+        install) run_qemu_install ;;
+        settings) run_qemu_settings ;;
+        runsystem) run_qemu_runsystem ;;
     esac
 }
 
