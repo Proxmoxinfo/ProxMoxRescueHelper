@@ -142,6 +142,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Check OS: Proxmox supports only Debian and Ubuntu
+if [ ! -f /etc/debian_version ]; then
+    echo "Error: This script supports only Debian and Ubuntu." >&2
+    exit 1
+fi
+
+# Check root privileges
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Error: This script must be run as root." >&2
+    exit 1
+fi
+
 clear_list() {
     pkill -f novnc_proxy || true
     echo "All noVNC sessions have been terminated."
