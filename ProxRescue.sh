@@ -88,6 +88,18 @@ show_help() {
     echo "  $0 -ve -p yourVNCpassword   Install Proxmox VE with a specified VNC password."
 }
 
+validate_ipv4() {
+    local ip="$1"
+    local IFS='.'
+    read -ra octets <<< "$ip"
+    [ "${#octets[@]}" -eq 4 ] || return 1
+    for octet in "${octets[@]}"; do
+        [[ "$octet" =~ ^[0-9]+$ ]] || return 1
+        [ "$octet" -le 255 ] || return 1
+    done
+    return 0
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         -p | --password)
@@ -118,7 +130,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -dns)
-            if [[ "$2" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            if validate_ipv4 "$2"; then
                 NAME_SERVER="$2"
             else
                 echo "Warning: Invalid DNS server IP address: $2. Using fallback 1.0.0.1" >&2
