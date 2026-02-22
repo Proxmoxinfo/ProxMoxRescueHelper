@@ -25,6 +25,23 @@ VERSION_SCRIPT="0.70"
 # shellcheck disable=SC2034
 SCRIPT_TYPE="self-contained"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Ports
+QEMU_MONITOR_PORT=4444
+QEMU_VNC_PORT=5900
+QEMU_SSH_PORT=2222
+
+# Paths
+OVMF_PATH="/usr/share/ovmf/OVMF.fd"
+
+# UX
+DISK_WARNING_ENABLED=true
+REBOOT_TIMEOUT=5
+
+# noVNC
+NOVNC_VERSION=""
+
 logo='
 ██████  ██████   ██████  ██   ██ ███    ███  ██████  ██   ██    ██ ███    ██ ███████  ██████  
 ██   ██ ██   ██ ██    ██  ██ ██  ████  ████ ██    ██  ██ ██     ██ ████   ██ ██      ██    ██ 
@@ -45,14 +62,25 @@ QEMU_DISK_ARGS=()
 
 if [ -z "$VNC_PASSWORD" ]; then
     if [ "$VNC_PASSWORD_LENGTH" -lt 8 ] || [ "$VNC_PASSWORD_LENGTH" -gt 20 ]; then
-        echo "Warning: VNC_PASSWORD_LENGTH must be between 8 and 20. Using default (10)."
+        echo "Warning: VNC_PASSWORD_LENGTH must be between 8 and 20. Using default (10)." >&2
         VNC_PASSWORD_LENGTH=10
     fi
-    VNC_PASSWORD=$(head -c 256 /dev/urandom | tr -dc A-Za-z0-9 | head -c "$VNC_PASSWORD_LENGTH")
+    VNC_PASSWORD_ENTROPY_BYTES=256
+    VNC_PASSWORD=$(head -c "$VNC_PASSWORD_ENTROPY_BYTES" /dev/urandom | tr -dc A-Za-z0-9 | head -c "$VNC_PASSWORD_LENGTH")
 fi
 if [ -z "$NOVNC_PORT" ]; then
     NOVNC_PORT=8080
 fi
+
+validate_ipv4() {
+    local ip="$1"
+    local IFS='.'
+    read -ra octets <<< "$ip"
+    [ ${#octets[@]} -eq 4 ] || return 1
+    for octet in "${octets[@]}"; do
+        [[ "$octet" =~ ^[0-9]+$ ]] && [ "$octet" -le 255 ] || return 1
+    done
+}
 
 show_help() {
     echo "$logo"
@@ -82,7 +110,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "$2" =~ ^[0-9]+$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 65535 ]; then
                 NOVNC_PORT="$2"
             else
-                echo "Error: Invalid port number: $2"
+                echo "Error: Invalid port number: $2" >&2
                 exit 1
             fi
             shift
@@ -101,10 +129,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -dns)
-            if [[ "$2" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            if validate_ipv4 "$2"; then
                 NAME_SERVER="$2"
             else
-                echo "Warning: Invalid DNS server IP address: $2. Using fallback 1.0.0.1"
+                echo "Warning: Invalid DNS server IP address: $2. Using fallback 1.0.0.1" >&2
                 NAME_SERVER="1.0.0.1"
             fi
             shift
@@ -119,18 +147,36 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "Warning: Unknown option: $1"
+            echo "Warning: Unknown option: $1" >&2
             shift
             ;;
     esac
 done
 
+# Check OS: Proxmox supports only Debian and Ubuntu
+if [ ! -f /etc/debian_version ]; then
+    echo "Error: This script supports only Debian and Ubuntu." >&2
+    exit 1
+fi
+
+# Check root privileges
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Error: This script must be run as root." >&2
+    exit 1
+fi
+
+cleanup() {
+    pkill -f novnc_proxy 2>/dev/null || true
+    printf "quit\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
 clear_list() {
-    pkill -f novnc_proxy || true
+    pkill -f novnc_proxy 2>/dev/null || echo "Note: no noVNC process found." >&2
     echo "All noVNC sessions have been terminated."
-    ssh-keygen -R "[127.0.0.1]:2222" || true
-    echo "SSH key cache cleared for 127.0.0.1 port 2222."
-    printf "quit\n" | nc 127.0.0.1 4444 || true
+    ssh-keygen -R "[127.0.0.1]:$QEMU_SSH_PORT" 2>/dev/null || true
+    echo "SSH key cache cleared for 127.0.0.1 port $QEMU_SSH_PORT."
+    printf "quit\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" 2>/dev/null || echo "Note: QEMU monitor not responding." >&2
     echo "Sent shutdown command to QEMU."
 }
 
@@ -147,7 +193,7 @@ get_network_info() {
     done
 
     if [ ${#iface_candidates[@]} -eq 0 ]; then
-        echo "No valid network interface found."
+        echo "Error: No valid network interface found." >&2
         exit 1
     fi
 
@@ -162,7 +208,7 @@ get_network_info() {
 
     IP_CIDR=$(ip addr show "$INTERFACE_NAME" | grep "inet\b" | head -n 1 | awk '{print $2}' || true)
     if [ -z "$IP_CIDR" ] || [[ ! "$IP_CIDR" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
-        echo "Error: No valid IP configuration found for interface $INTERFACE_NAME"
+        echo "Error: No valid IP configuration found for interface $INTERFACE_NAME" >&2
         exit 1
     fi
     GATEWAY=$(ip route | grep default | awk '{print $3}' || true)
@@ -184,13 +230,13 @@ check_and_install_packages() {
     else
         echo "Installing required packages..."
         apt update -qq || {
-            echo "Error: apt update failed."
+            echo "Error: apt update failed." >&2
             exit 1
         }
         for package in "${missing_packages[@]}"; do
             echo "Installing package: $package"
             if ! apt install -y "$package" -qq; then
-                echo "Error: Failed to install $package"
+                echo "Error: Failed to install $package" >&2
                 exit 1
             fi
         done
@@ -201,26 +247,33 @@ check_and_install_packages() {
 
 install_novnc() {
     echo "Checking for noVNC installation..."
-    if [ ! -d "noVNC" ]; then
+    if [ ! -d "$SCRIPT_DIR/noVNC" ]; then
         echo "noVNC not found. Cloning noVNC from GitHub..."
-        if ! git clone https://github.com/novnc/noVNC.git; then
-            echo "Error: Failed to clone noVNC repository."
-            return 1
+        if [ -n "$NOVNC_VERSION" ]; then
+            if ! git clone --branch "$NOVNC_VERSION" --depth 1 https://github.com/novnc/noVNC.git "$SCRIPT_DIR/noVNC"; then
+                echo "Error: Failed to clone noVNC repository." >&2
+                return 1
+            fi
+        else
+            if ! git clone --depth 1 https://github.com/novnc/noVNC.git "$SCRIPT_DIR/noVNC"; then
+                echo "Error: Failed to clone noVNC repository." >&2
+                return 1
+            fi
         fi
         echo "Cloning websockify for noVNC..."
-        if ! git clone https://github.com/novnc/websockify noVNC/utils/websockify; then
-            echo "Error: Failed to clone websockify repository."
+        if ! git clone --depth 1 https://github.com/novnc/websockify "$SCRIPT_DIR/noVNC/utils/websockify"; then
+            echo "Error: Failed to clone websockify repository." >&2
             return 1
         fi
         echo "Renaming vnc.html to index.html..."
-        cp noVNC/vnc.html noVNC/index.html
+        cp "$SCRIPT_DIR/noVNC/vnc.html" "$SCRIPT_DIR/noVNC/index.html"
     else
         echo "noVNC is already installed."
-        if [ ! -f "noVNC/index.html" ]; then
+        if [ ! -f "$SCRIPT_DIR/noVNC/index.html" ]; then
             echo "Renaming vnc.html to index.html..."
-            cp noVNC/vnc.html noVNC/index.html
-        elif [ ! -f "noVNC/vnc.html" ]; then
-            echo "Warning: vnc.html does not exist. Please check your noVNC installation."
+            cp "$SCRIPT_DIR/noVNC/vnc.html" "$SCRIPT_DIR/noVNC/index.html"
+        elif [ ! -f "$SCRIPT_DIR/noVNC/vnc.html" ]; then
+            echo "Warning: vnc.html does not exist. Please check your noVNC installation." >&2
         fi
     fi
 }
@@ -249,7 +302,7 @@ EOF
     while true; do
         read -rs -p "To configure the network on your server, enter the root password you set when installing $PRODUCT_NAME: " ROOT_PASSWORD
         local scp_rc=0
-        sshpass -p "$ROOT_PASSWORD" scp -o StrictHostKeyChecking=no -P 2222 "$tmp_netcfg" root@127.0.0.1:/etc/network/interfaces || scp_rc=$?
+        sshpass -f <(printf '%s' "$ROOT_PASSWORD") scp -o StrictHostKeyChecking=no -P "$QEMU_SSH_PORT" "$tmp_netcfg" root@127.0.0.1:/etc/network/interfaces || scp_rc=$?
         if [ "$scp_rc" -eq 5 ]; then
             echo "Authorization error. Please check your root password."
         else
@@ -257,13 +310,13 @@ EOF
         fi
     done
     local ssh_rc=0
-    sshpass -p "$ROOT_PASSWORD" ssh -o StrictHostKeyChecking=no -p 2222 root@127.0.0.1 "sed -i 's|nameserver.*|nameserver $NAME_SERVER|' /etc/resolv.conf" || ssh_rc=$?
+    sshpass -f <(printf '%s' "$ROOT_PASSWORD") ssh -o StrictHostKeyChecking=no -p "$QEMU_SSH_PORT" root@127.0.0.1 "sed -i 's|nameserver.*|nameserver $NAME_SERVER|' /etc/resolv.conf" || ssh_rc=$?
     if [ "$ssh_rc" -ne 0 ]; then
-        echo "Error in change resolv.conf."
+        echo "Error in change resolv.conf." >&2
     else
         echo "resolv.conf updated."
         echo "Shutdown QEMU"
-        printf "system_powerdown\n" | nc 127.0.0.1 4444 || true
+        printf "system_powerdown\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
         reboot_server
     fi
 }
@@ -296,13 +349,59 @@ select_disks() {
     print_logo
 }
 
-run_qemu() {
+setup_vnc_and_novnc() {
+    sleep 2
+    echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 "$QEMU_MONITOR_PORT" || true
+    print_logo
+    echo "Use VNC client or Web Browser to connect to your server."
+    echo -e "IP for VNC connect: $IP_ADDRESS\n"
+    echo "For NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
+    echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
+    "$SCRIPT_DIR/noVNC/utils/novnc_proxy" --vnc "127.0.0.1:$QEMU_VNC_PORT" --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
+    NOVNC_PID=$!
+}
+
+wait_for_qemu() {
+    local check_cmd="$1"
+    local prompt_msg="$2"
+    local confirm_word="$3"
+    local stop_cmd="$4"
+    local on_done="$5"
+
+    while true; do
+        if ! eval "$check_cmd" >/dev/null 2>&1; then
+            echo "QEMU process has stopped unexpectedly." >&2
+            kill "$NOVNC_PID" 2>/dev/null || true
+            echo "noVNC stopped."
+            echo "Options: 1) Return to menu  2) Reboot server"
+            read -r -p "Choice (1/2): " fail_choice
+            case "$fail_choice" in
+                2) reboot_server ;;
+                *) return ;;
+            esac
+            break
+        fi
+        local confirmation=""
+        read -r -t 5 -p "$prompt_msg" confirmation || true
+        if [ "$confirmation" = "$confirm_word" ]; then
+            echo "QEMU shutting down..."
+            printf "%s\n" "$stop_cmd" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
+            kill "$NOVNC_PID" 2>/dev/null || true
+            echo "noVNC stopped."
+            if [ -n "$on_done" ]; then
+                $on_done
+            fi
+            break
+        fi
+    done
+}
+
+build_qemu_args() {
     if ! command -v qemu-system-x86_64 &>/dev/null; then
-        echo "Error: qemu-system-x86_64 not found. Install: apt install qemu-system-x86"
+        echo "Error: qemu-system-x86_64 not found. Install: apt install qemu-system-x86" >&2
         return 1
     fi
     get_network_info
-    local task=$1
     if [ ${#QEMU_DISK_ARGS[@]} -eq 0 ]; then
         local disks
         disks=$(lsblk -dn -o NAME,TYPE -e 1,7,11,14,15 | grep -E 'nvme|sd|vd' | awk '$2 == "disk" {print $1}' || true)
@@ -312,90 +411,75 @@ run_qemu() {
             disk_index=$((disk_index + 1))
         done
         if [ ${#QEMU_DISK_ARGS[@]} -eq 0 ]; then
-            echo "Error: No suitable disks found on the system."
+            echo "Error: No suitable disks found on the system." >&2
             return 1
         fi
     fi
 
-    local QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:4444,server,nowait")
+    if [ "$DISK_WARNING_ENABLED" = true ]; then
+        echo "WARNING: The following disks will be passed to QEMU with raw access:" >&2
+        for arg in "${QEMU_DISK_ARGS[@]}"; do
+            if [[ "$arg" == file=* ]]; then
+                echo "  - $arg" >&2
+            fi
+        done
+        read -r -p "Continue? (y/N): " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            echo "Aborted." >&2
+            return 1
+        fi
+    fi
+
+    QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:$QEMU_MONITOR_PORT,server,nowait")
 
     if [ "$USE_UEFI" = "true" ]; then
-        if [ ! -f "/usr/share/ovmf/OVMF.fd" ]; then
-            echo "Error: OVMF firmware not found. Install: apt install ovmf"
+        if [ ! -f "$OVMF_PATH" ]; then
+            echo "Error: OVMF firmware not found at $OVMF_PATH. Install: apt install ovmf" >&2
             return 1
         fi
-        QEMU_COMMON_ARGS=(-bios /usr/share/ovmf/OVMF.fd "${QEMU_COMMON_ARGS[@]}")
+        QEMU_COMMON_ARGS=(-bios "$OVMF_PATH" "${QEMU_COMMON_ARGS[@]}")
     fi
-    if [ "$task" = "install" ]; then
-        local QEMU_CDROM_ARGS=(-drive "file=/tmp/proxmox.iso,index=0,media=cdrom" -boot d)
-        qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_CDROM_ARGS[@]}"
-        echo -e "\nQemu running...."
-        sleep 2
-        echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 4444 || true
-        print_logo
-        echo "Use VNC client or Use Web Browser for connect to your server."
-        echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
-        echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
-        echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
-        ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:5900 --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
-        NOVNC_PID=$!
-        while true; do
-            # pgrep is used here because qemu runs with -daemonize (no direct PID)
-            if ! pgrep -f "qemu-system-x86_64" >/dev/null; then
-                echo "QEMU process has stopped unexpectedly."
-                kill "$NOVNC_PID" 2>/dev/null || true
-                echo "noVNC stopped."
-                reboot_server
-                break
-            fi
-            confirmation=""
-            read -r -t 5 -p "Installation in progress... Enter 'yes' when complete: " confirmation || true
-            if [ "$confirmation" = "yes" ]; then
-                echo "QEMU shutting down...."
-                printf "quit\n" | nc 127.0.0.1 4444 || true
-                kill "$NOVNC_PID" 2>/dev/null || true
-                echo "noVNC stopped."
-                print_logo
-                configure_network
-                break
-            fi
-        done
-    elif [ "$task" = "settings" ]; then
-        local QEMU_NETWORK_SETTINGS=(-net "user,hostfwd=tcp::2222-:22" -net nic)
-        qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_NETWORK_SETTINGS[@]}"
-    elif [ "$task" = "runsystem" ]; then
-        qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" &
-        QEMU_PID=$!
-        echo -e "\nQemu running...."
-        sleep 2
-        echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 4444 || true
-        print_logo
-        echo "Use VNC client or Use Web Browser for connect to your server."
-        echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
-        echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
-        echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
-        ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:5900 --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
-        NOVNC_PID=$!
-        while true; do
-            if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-                echo "QEMU process has stopped unexpectedly."
-                kill "$NOVNC_PID" 2>/dev/null || true
-                echo "noVNC stopped."
-                reboot_server
-                break
-            fi
-            confirmation=""
-            read -r -t 5 -p "System running... Enter 'shutdown' to stop QEMU: " confirmation || true
-            if [ "$confirmation" = "shutdown" ]; then
-                echo "QEMU shutting down manually..."
-                printf "system_powerdown\n" | nc 127.0.0.1 4444 || true
-                kill "$NOVNC_PID" 2>/dev/null || true
-                echo "noVNC stopped."
-                reboot_server
-                break
-            fi
-        done
-    fi
+}
+
+run_qemu_install() {
+    local QEMU_CDROM_ARGS=(-drive "file=/tmp/proxmox.iso,index=0,media=cdrom" -boot d)
+    qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_CDROM_ARGS[@]}"
+    echo -e "\nQemu running...."
+    setup_vnc_and_novnc
+    wait_for_qemu \
+        'pgrep -f "qemu-system-x86_64"' \
+        "Installation in progress... Enter 'yes' when complete: " \
+        "yes" \
+        "quit" \
+        "configure_network"
+}
+
+run_qemu_settings() {
+    local QEMU_NETWORK_SETTINGS=(-net "user,hostfwd=tcp::${QEMU_SSH_PORT}-:22" -net nic)
+    qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_NETWORK_SETTINGS[@]}"
+}
+
+run_qemu_runsystem() {
+    qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" &
+    QEMU_PID=$!
+    echo -e "\nQemu running...."
+    setup_vnc_and_novnc
+    wait_for_qemu \
+        "kill -0 $QEMU_PID" \
+        "System running... Enter 'shutdown' to stop QEMU: " \
+        "shutdown" \
+        "system_powerdown" \
+        "reboot_server"
+}
+
+run_qemu() {
+    local task=$1
+    build_qemu_args || return 1
+    case "$task" in
+        install)    run_qemu_install ;;
+        settings)   run_qemu_settings ;;
+        runsystem)  run_qemu_runsystem ;;
+    esac
 }
 
 verify_iso_checksum() {
@@ -403,13 +487,17 @@ verify_iso_checksum() {
     local iso_path="${2:-/tmp/proxmox.iso}"
     echo "Downloading SHA256SUMS for verification..."
     if ! curl -sf "https://download.proxmox.com/iso/SHA256SUMS" -o /tmp/proxmox_sha256sums; then
-        echo "Warning: Could not download SHA256SUMS file. Skipping verification."
-        return 0
+        echo "Warning: Could not download SHA256SUMS file." >&2
+        read -r -p "Continue without checksum verification? (y/N): " answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
+            return 0
+        fi
+        return 1
     fi
     local expected_hash
     expected_hash=$(grep "$iso_name" /tmp/proxmox_sha256sums | awk '{print $1}')
     if [ -z "$expected_hash" ]; then
-        echo "Warning: No checksum found for $iso_name in SHA256SUMS. Skipping verification."
+        echo "Warning: No checksum found for $iso_name in SHA256SUMS. Skipping verification." >&2
         rm -f /tmp/proxmox_sha256sums
         return 0
     fi
@@ -427,10 +515,9 @@ verify_iso_checksum() {
     fi
 }
 
-select_proxmox_product_and_version() {
+select_product() {
     if [ -n "$PRODUCT_CHOICE" ]; then
         echo "Product has been already selected: $PRODUCT_CHOICE"
-
         case "$PRODUCT_CHOICE" in
             "Proxmox Virtual Environment")
                 GREP_PATTERN='proxmox-ve_([0-9]+\.[0-9]+-[0-9]+)\.iso'
@@ -445,66 +532,71 @@ select_proxmox_product_and_version() {
                 PRODUCT_NAME="Proxmox Mail Gateway"
                 ;;
         esac
-    else
-        local valid_choice=0
-        while [ $valid_choice -eq 0 ]; do
-            print_logo
-            echo "Select the Proxmox product to install:"
-            echo "1) Proxmox Virtual Environment"
-            echo "2) Proxmox Backup Server"
-            echo "3) Proxmox Mail Gateway"
-            echo "4) Return to main menu"
-            read -r -p "Enter number (1-4): " product_choice
-
-            case "$product_choice" in
-                1)
-                    GREP_PATTERN='proxmox-ve_([0-9]+\.[0-9]+-[0-9]+)\.iso'
-                    PRODUCT_NAME="Proxmox Virtual Environment"
-                    valid_choice=1
-                    ;;
-                2)
-                    GREP_PATTERN='proxmox-backup-server_([0-9]+\.[0-9]+-[0-9]+)\.iso'
-                    PRODUCT_NAME="Proxmox Backup Server"
-                    valid_choice=1
-                    ;;
-                3)
-                    GREP_PATTERN='proxmox-mail-gateway_([0-9]+\.[0-9]+-[0-9]+)\.iso'
-                    PRODUCT_NAME="Proxmox Mail Gateway"
-                    valid_choice=1
-                    ;;
-                4)
-                    echo "Returning to main menu..."
-                    return
-                    ;;
-                *) echo "Invalid selection. Please, try again." ;;
-            esac
-        done
+        return 0
     fi
 
+    while true; do
+        print_logo
+        echo "Select the Proxmox product to install:"
+        echo "1) Proxmox Virtual Environment"
+        echo "2) Proxmox Backup Server"
+        echo "3) Proxmox Mail Gateway"
+        echo "4) Return to main menu"
+        read -r -p "Enter number (1-4): " product_choice
+
+        case "$product_choice" in
+            1)
+                GREP_PATTERN='proxmox-ve_([0-9]+\.[0-9]+-[0-9]+)\.iso'
+                PRODUCT_NAME="Proxmox Virtual Environment"
+                return 0
+                ;;
+            2)
+                GREP_PATTERN='proxmox-backup-server_([0-9]+\.[0-9]+-[0-9]+)\.iso'
+                PRODUCT_NAME="Proxmox Backup Server"
+                return 0
+                ;;
+            3)
+                GREP_PATTERN='proxmox-mail-gateway_([0-9]+\.[0-9]+-[0-9]+)\.iso'
+                PRODUCT_NAME="Proxmox Mail Gateway"
+                return 0
+                ;;
+            4)
+                echo "Returning to main menu..."
+                return 1
+                ;;
+            *) echo "Invalid selection. Please, try again." ;;
+        esac
+    done
+}
+
+fetch_available_versions() {
     print_logo
     echo "Retrieving available versions for $PRODUCT_NAME..."
     local iso_page=""
     if ! iso_page=$(curl -sf 'https://download.proxmox.com/iso/'); then
-        echo "Error: Failed to retrieve ISO list from download.proxmox.com."
-        echo "Please check your network connection and try again."
-        return
+        echo "Error: Failed to retrieve ISO list from download.proxmox.com." >&2
+        echo "Please check your network connection and try again." >&2
+        return 1
     fi
     if [ -z "$iso_page" ]; then
-        echo "Error: Empty response from download.proxmox.com."
-        return
+        echo "Error: Empty response from download.proxmox.com." >&2
+        return 1
     fi
     AVAILABLE_ISOS=$(echo "$iso_page" | grep -oP "$GREP_PATTERN" | sort -V | tac | uniq || true)
     if [ -z "$AVAILABLE_ISOS" ]; then
-        echo "Error: No ISO versions found for $PRODUCT_NAME."
-        return
+        echo "Error: No ISO versions found for $PRODUCT_NAME." >&2
+        return 1
     fi
     IFS=$'\n' read -r -d '' -a iso_array <<<"$AVAILABLE_ISOS" || true
+}
+
+select_version() {
     echo "Please select the version to install (default is the latest version):"
     for i in "${!iso_array[@]}"; do
         echo "$((i + 1))) ${iso_array[i]}"
     done
-    echo "$((${#iso_array[@]} + 1)) Return to product selection"
-    echo "$((${#iso_array[@]} + 2)) Return to main menu"
+    echo "$((${#iso_array[@]} + 1))) Return to product selection"
+    echo "$((${#iso_array[@]} + 2))) Return to main menu"
 
     read -r -t 30 -p "Enter number (1-$((${#iso_array[@]} + 2))) or wait for auto-selection: " version_choice || true
     if [ -z "${version_choice:-}" ]; then
@@ -514,42 +606,81 @@ select_proxmox_product_and_version() {
 
     if [ "$version_choice" -eq "$((${#iso_array[@]} + 1))" ]; then
         echo "Returning to product selection..."
-        select_proxmox_product_and_version
-        return
+        SELECTED_ISO=""
+        return 2
     elif [ "$version_choice" -eq "$((${#iso_array[@]} + 2))" ]; then
         echo "Returning to main menu..."
-        return
+        SELECTED_ISO=""
+        return 1
     elif [[ "$version_choice" =~ ^[0-9]+$ ]] && [ "$version_choice" -ge 1 ] && [ "$version_choice" -le "${#iso_array[@]}" ]; then
-        selected_iso="${iso_array[$((version_choice - 1))]}"
+        SELECTED_ISO="${iso_array[$((version_choice - 1))]}"
     else
         echo "Invalid selection, using the latest version."
-        selected_iso="${iso_array[0]}"
+        SELECTED_ISO="${iso_array[0]}"
+    fi
+}
+
+download_and_verify_iso() {
+    local selected_iso="$1"
+
+    if [ -f /tmp/proxmox.iso ]; then
+        echo "Found existing /tmp/proxmox.iso"
+        read -r -p "Re-download? (y/N): " answer
+        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+            return 0
+        fi
     fi
 
-    ISO_URL="https://download.proxmox.com/iso/$selected_iso"
+    local iso_url="https://download.proxmox.com/iso/$selected_iso"
     local tmp_iso="/tmp/proxmox_download_$$.iso"
-    echo "Downloading $ISO_URL..."
-    if ! curl -f "$ISO_URL" -o "$tmp_iso" --progress-bar; then
-        echo "Error: Failed to download ISO from $ISO_URL"
+    echo "Downloading $iso_url..."
+    if ! curl -f "$iso_url" -o "$tmp_iso" --progress-bar; then
+        echo "Error: Failed to download ISO from $iso_url" >&2
         rm -f "$tmp_iso"
-        return
+        return 1
     fi
     if ! verify_iso_checksum "$selected_iso" "$tmp_iso"; then
-        echo "SHA256 checksum verification FAILED. The downloaded ISO may be corrupted or tampered with."
-        echo "Please try downloading again or verify manually."
+        echo "SHA256 checksum verification FAILED. The downloaded ISO may be corrupted or tampered with." >&2
+        echo "Please try downloading again or verify manually." >&2
         rm -f "$tmp_iso"
-        return
+        return 1
     fi
     mv "$tmp_iso" /tmp/proxmox.iso
-    print_logo
-    run_qemu "install"
+}
+
+select_proxmox_product_and_version() {
+    while true; do
+        select_product || return
+
+        fetch_available_versions || return
+
+        local version_rc=0
+        select_version || version_rc=$?
+        if [ "$version_rc" -eq 2 ]; then
+            PRODUCT_CHOICE=""
+            continue
+        elif [ "$version_rc" -eq 1 ]; then
+            return
+        fi
+
+        if [ -z "$SELECTED_ISO" ]; then
+            return
+        fi
+
+        download_and_verify_iso "$SELECTED_ISO" || return
+
+        print_logo
+        run_qemu "install"
+        return
+    done
 }
 
 reboot_server() {
     echo "Are you sure you want to reboot the server? (Y/n)"
     read -r answer
     if [[ $answer =~ ^[Yy]?$ ]]; then
-        echo "Rebooting..."
+        echo "Rebooting in $REBOOT_TIMEOUT seconds..."
+        sleep "$REBOOT_TIMEOUT"
         shutdown -r now
     else
         echo "Reboot canceled. Returning to main menu..."
@@ -563,8 +694,12 @@ runInstalledSystem() {
 
 changeVncPassword() {
     echo "Enter new password for VNC:"
-    read -r VNC_PASSWORD
-    echo "VNC password has been updated."
+    read -rs VNC_PASSWORD
+    echo
+    echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 "$QEMU_MONITOR_PORT" || {
+        echo "Warning: Could not send new VNC password to QEMU monitor." >&2
+    }
+    echo -e "VNC password updated to: \033[1m$VNC_PASSWORD\033[0m"
 }
 
 exitScript() {
@@ -577,45 +712,42 @@ install_novnc
 clear_list
 
 show_menu() {
-    echo "Welcome to Proxmox products installer in Rescue Mode for Hetzner"
-    echo "================================================================"
-    echo "Please choose an action:"
-    echo "1) Install Proxmox (VE, BS, MG)"
-    echo "2) Install Proxmox (VE, BS, MG) with UEFI"
-    echo "3) Run installed System in QEMU"
-    echo "4) Run installed System in QEMU with UEFI"
-    echo "5) Change VNC Password"
-    echo "6) Reboot"
-    echo "7) Exit"
-    echo "8) Manually select disks for QEMU"
-
     while true; do
+        echo "Welcome to Proxmox products installer in Rescue Mode for Hetzner"
+        echo "================================================================"
+        echo "Please choose an action:"
+        echo "1) Select disks for QEMU"
+        echo "2) Install Proxmox (VE, BS, MG)"
+        echo "3) Install Proxmox (VE, BS, MG) with UEFI"
+        echo "4) Run installed System in QEMU"
+        echo "5) Run installed System in QEMU with UEFI"
+        echo "6) Change VNC Password"
+        echo "7) Reboot"
+        echo "8) Exit"
+
         read -r -p "Enter choice: " choice
         case "$choice" in
-            1) select_proxmox_product_and_version ;;
-            2)
+            1) select_disks ;;
+            2) select_proxmox_product_and_version ;;
+            3)
                 USE_UEFI=true
                 select_proxmox_product_and_version
                 ;;
-            3) runInstalledSystem ;;
-            4)
+            4) runInstalledSystem ;;
+            5)
                 USE_UEFI=true
                 runInstalledSystem
                 ;;
-            5) changeVncPassword ;;
-            6)
+            6) changeVncPassword ;;
+            7)
                 reboot_server
                 return
                 ;;
-            7) exitScript ;;
-            8) select_disks ;;
+            8) exitScript ;;
             *)
-                echo "Invalid selection. Please, try again."
-                continue
+                echo "Invalid selection. Please, try again." >&2
                 ;;
         esac
-        show_menu
-        break
     done
 }
 
