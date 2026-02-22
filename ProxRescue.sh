@@ -382,13 +382,12 @@ setup_vnc_and_novnc() {
     NOVNC_PID=$!
 }
 
-run_qemu() {
+build_qemu_args() {
     if ! command -v qemu-system-x86_64 &>/dev/null; then
         echo "Error: qemu-system-x86_64 not found. Install: apt install qemu-system-x86" >&2
         return 1
     fi
     get_network_info
-    local task=$1
     if [ ${#QEMU_DISK_ARGS[@]} -eq 0 ]; then
         local disks
         disks=$(lsblk -dn -o NAME,TYPE -e 1,7,11,14,15 | grep -E 'nvme|sd|vd' | awk '$2 == "disk" {print $1}' || true)
@@ -415,7 +414,7 @@ run_qemu() {
         fi
     fi
 
-    local QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:$QEMU_MONITOR_PORT,server,nowait")
+    QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:$QEMU_MONITOR_PORT,server,nowait")
 
     if [ "$USE_UEFI" = "true" ]; then
         if [ ! -f "$OVMF_PATH" ]; then
@@ -424,32 +423,48 @@ run_qemu() {
         fi
         QEMU_COMMON_ARGS=(-bios "$OVMF_PATH" "${QEMU_COMMON_ARGS[@]}")
     fi
-    if [ "$task" = "install" ]; then
-        local QEMU_CDROM_ARGS=(-drive "file=/tmp/proxmox.iso,index=0,media=cdrom" -boot d)
-        qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_CDROM_ARGS[@]}"
-        echo -e "\nQemu running...."
-        setup_vnc_and_novnc
-        wait_for_qemu \
-            'pgrep -f "qemu-system-x86_64"' \
-            "Installation in progress... Enter 'yes' when complete: " \
-            "yes" \
-            "quit" \
-            "print_logo; configure_network"
-    elif [ "$task" = "settings" ]; then
-        local QEMU_NETWORK_SETTINGS=(-net "user,hostfwd=tcp::${QEMU_SSH_PORT}-:22" -net nic)
-        qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_NETWORK_SETTINGS[@]}"
-    elif [ "$task" = "runsystem" ]; then
-        qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" &
-        QEMU_PID=$!
-        echo -e "\nQemu running...."
-        setup_vnc_and_novnc
-        wait_for_qemu \
-            "kill -0 $QEMU_PID" \
-            "System running... Enter 'shutdown' to stop QEMU: " \
-            "shutdown" \
-            "system_powerdown" \
-            "reboot_server"
-    fi
+}
+
+run_qemu_install() {
+    build_qemu_args || return 1
+    local QEMU_CDROM_ARGS=(-drive "file=/tmp/proxmox.iso,index=0,media=cdrom" -boot d)
+    qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_CDROM_ARGS[@]}"
+    echo -e "\nQemu running...."
+    setup_vnc_and_novnc
+    wait_for_qemu \
+        'pgrep -f "qemu-system-x86_64"' \
+        "Installation in progress... Enter 'yes' when complete: " \
+        "yes" \
+        "quit" \
+        "print_logo; configure_network"
+}
+
+run_qemu_settings() {
+    build_qemu_args || return 1
+    local QEMU_NETWORK_SETTINGS=(-net "user,hostfwd=tcp::${QEMU_SSH_PORT}-:22" -net nic)
+    qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_NETWORK_SETTINGS[@]}"
+}
+
+run_qemu_runsystem() {
+    build_qemu_args || return 1
+    qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" &
+    QEMU_PID=$!
+    echo -e "\nQemu running...."
+    setup_vnc_and_novnc
+    wait_for_qemu \
+        "kill -0 $QEMU_PID" \
+        "System running... Enter 'shutdown' to stop QEMU: " \
+        "shutdown" \
+        "system_powerdown" \
+        "reboot_server"
+}
+
+run_qemu() {
+    case "$1" in
+        install)    run_qemu_install ;;
+        settings)   run_qemu_settings ;;
+        runsystem)  run_qemu_runsystem ;;
+    esac
 }
 
 verify_iso_checksum() {
