@@ -32,6 +32,16 @@ QEMU_MONITOR_PORT=4444
 QEMU_VNC_PORT=5900
 QEMU_SSH_PORT=2222
 
+# Paths
+OVMF_PATH="/usr/share/ovmf/OVMF.fd"
+
+# UX
+DISK_WARNING_ENABLED=true
+REBOOT_TIMEOUT=5
+
+# noVNC
+NOVNC_VERSION=""
+
 logo='
 ██████  ██████   ██████  ██   ██ ███    ███  ██████  ██   ██    ██ ███    ██ ███████  ██████  
 ██   ██ ██   ██ ██    ██  ██ ██  ████  ████ ██    ██  ██ ██     ██ ████   ██ ██      ██    ██ 
