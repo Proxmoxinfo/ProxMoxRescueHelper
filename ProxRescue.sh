@@ -341,6 +341,18 @@ select_disks() {
     print_logo
 }
 
+setup_vnc_and_novnc() {
+    sleep 2
+    echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 "$QEMU_MONITOR_PORT" || true
+    print_logo
+    echo "Use VNC client or Use Web Browser for connect to your server."
+    echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
+    echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
+    echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
+    "$SCRIPT_DIR/noVNC/utils/novnc_proxy" --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
+    NOVNC_PID=$!
+}
+
 run_qemu() {
     if ! command -v qemu-system-x86_64 &>/dev/null; then
         echo "Error: qemu-system-x86_64 not found. Install: apt install qemu-system-x86" >&2
@@ -387,15 +399,7 @@ run_qemu() {
         local QEMU_CDROM_ARGS=(-drive "file=/tmp/proxmox.iso,index=0,media=cdrom" -boot d)
         qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_CDROM_ARGS[@]}"
         echo -e "\nQemu running...."
-        sleep 2
-        echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 "$QEMU_MONITOR_PORT" || true
-        print_logo
-        echo "Use VNC client or Use Web Browser for connect to your server."
-        echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
-        echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
-        echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
-        "$SCRIPT_DIR/noVNC/utils/novnc_proxy" --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
-        NOVNC_PID=$!
+        setup_vnc_and_novnc
         while true; do
             # pgrep is used here because qemu runs with -daemonize (no direct PID)
             if ! pgrep -f "qemu-system-x86_64" >/dev/null; then
@@ -424,15 +428,7 @@ run_qemu() {
         qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" &
         QEMU_PID=$!
         echo -e "\nQemu running...."
-        sleep 2
-        echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 "$QEMU_MONITOR_PORT" || true
-        print_logo
-        echo "Use VNC client or Use Web Browser for connect to your server."
-        echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
-        echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
-        echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
-        "$SCRIPT_DIR/noVNC/utils/novnc_proxy" --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
-        NOVNC_PID=$!
+        setup_vnc_and_novnc
         while true; do
             if ! kill -0 "$QEMU_PID" 2>/dev/null; then
                 echo "QEMU process has stopped unexpectedly." >&2
