@@ -444,8 +444,12 @@ verify_iso_checksum() {
     local iso_path="${2:-/tmp/proxmox.iso}"
     echo "Downloading SHA256SUMS for verification..."
     if ! curl -sf "https://download.proxmox.com/iso/SHA256SUMS" -o /tmp/proxmox_sha256sums; then
-        echo "Warning: Could not download SHA256SUMS file. Skipping verification." >&2
-        return 0
+        echo "Warning: Could not download SHA256SUMS file." >&2
+        read -rp "Continue without checksum verification? [y/N]: " answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
+            return 0
+        fi
+        return 1
     fi
     local expected_hash
     expected_hash=$(grep "$iso_name" /tmp/proxmox_sha256sums | awk '{print $1}')
