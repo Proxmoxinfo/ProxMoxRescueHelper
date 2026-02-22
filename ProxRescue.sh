@@ -606,7 +606,8 @@ changeVncPassword() {
     echo "Enter new password for VNC:"
     read -rs VNC_PASSWORD
     echo
-    echo "VNC password has been updated."
+    echo "change vnc password $VNC_PASSWORD" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" >/dev/null 2>&1
+    echo "VNC password has been updated and applied to running QEMU instance."
 }
 
 exitScript() {
