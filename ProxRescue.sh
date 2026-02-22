@@ -244,12 +244,16 @@ install_novnc() {
     echo "Checking for noVNC installation..."
     if [ ! -d "$SCRIPT_DIR/noVNC" ]; then
         echo "noVNC not found. Cloning noVNC from GitHub..."
-        if ! git clone https://github.com/novnc/noVNC.git "$SCRIPT_DIR/noVNC"; then
+        local novnc_clone_args=(--depth 1)
+        if [ -n "$NOVNC_VERSION" ]; then
+            novnc_clone_args+=(--branch "$NOVNC_VERSION")
+        fi
+        if ! git clone "${novnc_clone_args[@]}" https://github.com/novnc/noVNC.git "$SCRIPT_DIR/noVNC"; then
             echo "Error: Failed to clone noVNC repository." >&2
             return 1
         fi
         echo "Cloning websockify for noVNC..."
-        if ! git clone https://github.com/novnc/websockify "$SCRIPT_DIR/noVNC/utils/websockify"; then
+        if ! git clone --depth 1 https://github.com/novnc/websockify "$SCRIPT_DIR/noVNC/utils/websockify"; then
             echo "Error: Failed to clone websockify repository." >&2
             return 1
         fi
