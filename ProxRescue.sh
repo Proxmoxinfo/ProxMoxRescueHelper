@@ -38,6 +38,7 @@ OVMF_PATH="/usr/share/ovmf/OVMF.fd"
 # UX
 DISK_WARNING_ENABLED=true
 REBOOT_TIMEOUT=5
+VNC_PASSWORD_ENTROPY_BYTES=256
 
 # noVNC
 NOVNC_VERSION=""
@@ -65,7 +66,7 @@ if [ -z "$VNC_PASSWORD" ]; then
         echo "Warning: VNC_PASSWORD_LENGTH must be between 8 and 20. Using default (10)." >&2
         VNC_PASSWORD_LENGTH=10
     fi
-    VNC_PASSWORD=$(head -c 256 /dev/urandom | tr -dc A-Za-z0-9 | head -c "$VNC_PASSWORD_LENGTH")
+    VNC_PASSWORD=$(head -c "$VNC_PASSWORD_ENTROPY_BYTES" /dev/urandom | tr -dc A-Za-z0-9 | head -c "$VNC_PASSWORD_LENGTH")
 fi
 if [ -z "$NOVNC_PORT" ]; then
     NOVNC_PORT=8080
