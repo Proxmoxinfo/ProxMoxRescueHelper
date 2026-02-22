@@ -500,10 +500,9 @@ verify_iso_checksum() {
     fi
 }
 
-select_proxmox_product_and_version() {
+select_product() {
     if [ -n "$PRODUCT_CHOICE" ]; then
         echo "Product has been already selected: $PRODUCT_CHOICE"
-
         case "$PRODUCT_CHOICE" in
             "Proxmox Virtual Environment")
                 GREP_PATTERN='proxmox-ve_([0-9]+\.[0-9]+-[0-9]+)\.iso'
@@ -518,59 +517,64 @@ select_proxmox_product_and_version() {
                 PRODUCT_NAME="Proxmox Mail Gateway"
                 ;;
         esac
-    else
-        local valid_choice=0
-        while [ $valid_choice -eq 0 ]; do
-            print_logo
-            echo "Select the Proxmox product to install:"
-            echo "1) Proxmox Virtual Environment"
-            echo "2) Proxmox Backup Server"
-            echo "3) Proxmox Mail Gateway"
-            echo "4) Return to main menu"
-            read -r -p "Enter number (1-4): " product_choice
-
-            case "$product_choice" in
-                1)
-                    GREP_PATTERN='proxmox-ve_([0-9]+\.[0-9]+-[0-9]+)\.iso'
-                    PRODUCT_NAME="Proxmox Virtual Environment"
-                    valid_choice=1
-                    ;;
-                2)
-                    GREP_PATTERN='proxmox-backup-server_([0-9]+\.[0-9]+-[0-9]+)\.iso'
-                    PRODUCT_NAME="Proxmox Backup Server"
-                    valid_choice=1
-                    ;;
-                3)
-                    GREP_PATTERN='proxmox-mail-gateway_([0-9]+\.[0-9]+-[0-9]+)\.iso'
-                    PRODUCT_NAME="Proxmox Mail Gateway"
-                    valid_choice=1
-                    ;;
-                4)
-                    echo "Returning to main menu..."
-                    return
-                    ;;
-                *) echo "Invalid selection. Please, try again." >&2 ;;
-            esac
-        done
+        return 0
     fi
+    while true; do
+        print_logo
+        echo "Select the Proxmox product to install:"
+        echo "1) Proxmox Virtual Environment"
+        echo "2) Proxmox Backup Server"
+        echo "3) Proxmox Mail Gateway"
+        echo "4) Return to main menu"
+        read -r -p "Enter number (1-4): " product_choice
+        case "$product_choice" in
+            1)
+                GREP_PATTERN='proxmox-ve_([0-9]+\.[0-9]+-[0-9]+)\.iso'
+                PRODUCT_NAME="Proxmox Virtual Environment"
+                return 0
+                ;;
+            2)
+                GREP_PATTERN='proxmox-backup-server_([0-9]+\.[0-9]+-[0-9]+)\.iso'
+                PRODUCT_NAME="Proxmox Backup Server"
+                return 0
+                ;;
+            3)
+                GREP_PATTERN='proxmox-mail-gateway_([0-9]+\.[0-9]+-[0-9]+)\.iso'
+                PRODUCT_NAME="Proxmox Mail Gateway"
+                return 0
+                ;;
+            4)
+                echo "Returning to main menu..."
+                return 1
+                ;;
+            *) echo "Invalid selection. Please, try again." >&2 ;;
+        esac
+    done
+}
 
+fetch_available_versions() {
     print_logo
     echo "Retrieving available versions for $PRODUCT_NAME..."
     local iso_page=""
     if ! iso_page=$(curl -sf 'https://download.proxmox.com/iso/'); then
         echo "Error: Failed to retrieve ISO list from download.proxmox.com." >&2
         echo "Please check your network connection and try again." >&2
-        return
+        return 1
     fi
     if [ -z "$iso_page" ]; then
         echo "Error: Empty response from download.proxmox.com." >&2
-        return
+        return 1
     fi
     AVAILABLE_ISOS=$(echo "$iso_page" | grep -oP "$GREP_PATTERN" | sort -V | tac | uniq || true)
     if [ -z "$AVAILABLE_ISOS" ]; then
         echo "Error: No ISO versions found for $PRODUCT_NAME." >&2
-        return
+        return 1
     fi
+    return 0
+}
+
+select_version() {
+    local -a iso_array
     IFS=$'\n' read -r -d '' -a iso_array <<<"$AVAILABLE_ISOS" || true
     echo "Please select the version to install (default is the latest version):"
     for i in "${!iso_array[@]}"; do
@@ -579,6 +583,7 @@ select_proxmox_product_and_version() {
     echo "$((${#iso_array[@]} + 1)) Return to product selection"
     echo "$((${#iso_array[@]} + 2)) Return to main menu"
 
+    local version_choice
     read -r -t 30 -p "Enter number (1-$((${#iso_array[@]} + 2))) or wait for auto-selection: " version_choice || true
     if [ -z "${version_choice:-}" ]; then
         version_choice=1
@@ -587,35 +592,58 @@ select_proxmox_product_and_version() {
 
     if [ "$version_choice" -eq "$((${#iso_array[@]} + 1))" ]; then
         echo "Returning to product selection..."
-        select_proxmox_product_and_version
-        return
+        return 2
     elif [ "$version_choice" -eq "$((${#iso_array[@]} + 2))" ]; then
         echo "Returning to main menu..."
-        return
+        return 1
     elif [[ "$version_choice" =~ ^[0-9]+$ ]] && [ "$version_choice" -ge 1 ] && [ "$version_choice" -le "${#iso_array[@]}" ]; then
-        selected_iso="${iso_array[$((version_choice - 1))]}"
+        SELECTED_ISO="${iso_array[$((version_choice - 1))]}"
     else
         echo "Invalid selection, using the latest version." >&2
-        selected_iso="${iso_array[0]}"
+        SELECTED_ISO="${iso_array[0]}"
     fi
+    return 0
+}
 
+download_and_verify_iso() {
+    local selected_iso="$1"
     ISO_URL="https://download.proxmox.com/iso/$selected_iso"
     local tmp_iso="/tmp/proxmox_download_$$.iso"
     echo "Downloading $ISO_URL..."
     if ! curl -f "$ISO_URL" -o "$tmp_iso" --progress-bar; then
         echo "Error: Failed to download ISO from $ISO_URL" >&2
         rm -f "$tmp_iso"
-        return
+        return 1
     fi
     if ! verify_iso_checksum "$selected_iso" "$tmp_iso"; then
         echo "SHA256 checksum verification FAILED. The downloaded ISO may be corrupted or tampered with." >&2
         echo "Please try downloading again or verify manually." >&2
         rm -f "$tmp_iso"
-        return
+        return 1
     fi
     mv "$tmp_iso" /tmp/proxmox.iso
-    print_logo
-    run_qemu "install"
+    return 0
+}
+
+select_proxmox_product_and_version() {
+    while true; do
+        select_product || return
+        fetch_available_versions || return
+
+        local version_rc=0
+        select_version || version_rc=$?
+        case $version_rc in
+            0) ;;
+            1) return ;;
+            2) PRODUCT_CHOICE=""; continue ;;
+        esac
+
+        if download_and_verify_iso "$SELECTED_ISO"; then
+            print_logo
+            run_qemu "install"
+            return
+        fi
+    done
 }
 
 reboot_server() {
