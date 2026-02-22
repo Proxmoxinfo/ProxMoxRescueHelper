@@ -242,25 +242,25 @@ check_and_install_packages() {
 
 install_novnc() {
     echo "Checking for noVNC installation..."
-    if [ ! -d "noVNC" ]; then
+    if [ ! -d "$SCRIPT_DIR/noVNC" ]; then
         echo "noVNC not found. Cloning noVNC from GitHub..."
-        if ! git clone https://github.com/novnc/noVNC.git; then
+        if ! git clone https://github.com/novnc/noVNC.git "$SCRIPT_DIR/noVNC"; then
             echo "Error: Failed to clone noVNC repository." >&2
             return 1
         fi
         echo "Cloning websockify for noVNC..."
-        if ! git clone https://github.com/novnc/websockify noVNC/utils/websockify; then
+        if ! git clone https://github.com/novnc/websockify "$SCRIPT_DIR/noVNC/utils/websockify"; then
             echo "Error: Failed to clone websockify repository." >&2
             return 1
         fi
         echo "Renaming vnc.html to index.html..."
-        cp noVNC/vnc.html noVNC/index.html
+        cp "$SCRIPT_DIR/noVNC/vnc.html" "$SCRIPT_DIR/noVNC/index.html"
     else
         echo "noVNC is already installed."
-        if [ ! -f "noVNC/index.html" ]; then
+        if [ ! -f "$SCRIPT_DIR/noVNC/index.html" ]; then
             echo "Renaming vnc.html to index.html..."
-            cp noVNC/vnc.html noVNC/index.html
-        elif [ ! -f "noVNC/vnc.html" ]; then
+            cp "$SCRIPT_DIR/noVNC/vnc.html" "$SCRIPT_DIR/noVNC/index.html"
+        elif [ ! -f "$SCRIPT_DIR/noVNC/vnc.html" ]; then
             echo "Warning: vnc.html does not exist. Please check your noVNC installation." >&2
         fi
     fi
@@ -378,7 +378,7 @@ run_qemu() {
         echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
         echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
         echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
-        ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
+        "$SCRIPT_DIR/noVNC/utils/novnc_proxy" --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
         NOVNC_PID=$!
         while true; do
             # pgrep is used here because qemu runs with -daemonize (no direct PID)
@@ -415,7 +415,7 @@ run_qemu() {
         echo -e "Ip for vnc connect:  $IP_ADDRESS\n"
         echo "For use NoVNC open in browser http://$IP_ADDRESS:$NOVNC_PORT"
         echo -e "\nYour password for connect: \033[1m$VNC_PASSWORD\033[0m\n"
-        ./noVNC/utils/novnc_proxy --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
+        "$SCRIPT_DIR/noVNC/utils/novnc_proxy" --vnc 127.0.0.1:$QEMU_VNC_PORT --listen "$IP_ADDRESS:$NOVNC_PORT" >/dev/null 2>&1 &
         NOVNC_PID=$!
         while true; do
             if ! kill -0 "$QEMU_PID" 2>/dev/null; then
