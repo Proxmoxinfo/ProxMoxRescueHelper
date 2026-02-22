@@ -62,7 +62,7 @@ QEMU_DISK_ARGS=()
 
 if [ -z "$VNC_PASSWORD" ]; then
     if [ "$VNC_PASSWORD_LENGTH" -lt 8 ] || [ "$VNC_PASSWORD_LENGTH" -gt 20 ]; then
-        echo "Warning: VNC_PASSWORD_LENGTH must be between 8 and 20. Using default (10)."
+        echo "Warning: VNC_PASSWORD_LENGTH must be between 8 and 20. Using default (10)." >&2
         VNC_PASSWORD_LENGTH=10
     fi
     VNC_PASSWORD=$(head -c 256 /dev/urandom | tr -dc A-Za-z0-9 | head -c "$VNC_PASSWORD_LENGTH")
@@ -99,7 +99,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "$2" =~ ^[0-9]+$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 65535 ]; then
                 NOVNC_PORT="$2"
             else
-                echo "Error: Invalid port number: $2"
+                echo "Error: Invalid port number: $2" >&2
                 exit 1
             fi
             shift
@@ -121,7 +121,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "$2" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
                 NAME_SERVER="$2"
             else
-                echo "Warning: Invalid DNS server IP address: $2. Using fallback 1.0.0.1"
+                echo "Warning: Invalid DNS server IP address: $2. Using fallback 1.0.0.1" >&2
                 NAME_SERVER="1.0.0.1"
             fi
             shift
@@ -136,7 +136,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "Warning: Unknown option: $1"
+            echo "Warning: Unknown option: $1" >&2
             shift
             ;;
     esac
@@ -176,7 +176,7 @@ get_network_info() {
     done
 
     if [ ${#iface_candidates[@]} -eq 0 ]; then
-        echo "No valid network interface found."
+        echo "Error: No valid network interface found." >&2
         exit 1
     fi
 
@@ -191,7 +191,7 @@ get_network_info() {
 
     IP_CIDR=$(ip addr show "$INTERFACE_NAME" | grep "inet\b" | head -n 1 | awk '{print $2}' || true)
     if [ -z "$IP_CIDR" ] || [[ ! "$IP_CIDR" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
-        echo "Error: No valid IP configuration found for interface $INTERFACE_NAME"
+        echo "Error: No valid IP configuration found for interface $INTERFACE_NAME" >&2
         exit 1
     fi
     GATEWAY=$(ip route | grep default | awk '{print $3}' || true)
@@ -213,13 +213,13 @@ check_and_install_packages() {
     else
         echo "Installing required packages..."
         apt update -qq || {
-            echo "Error: apt update failed."
+            echo "Error: apt update failed." >&2
             exit 1
         }
         for package in "${missing_packages[@]}"; do
             echo "Installing package: $package"
             if ! apt install -y "$package" -qq; then
-                echo "Error: Failed to install $package"
+                echo "Error: Failed to install $package" >&2
                 exit 1
             fi
         done
@@ -233,12 +233,12 @@ install_novnc() {
     if [ ! -d "noVNC" ]; then
         echo "noVNC not found. Cloning noVNC from GitHub..."
         if ! git clone https://github.com/novnc/noVNC.git; then
-            echo "Error: Failed to clone noVNC repository."
+            echo "Error: Failed to clone noVNC repository." >&2
             return 1
         fi
         echo "Cloning websockify for noVNC..."
         if ! git clone https://github.com/novnc/websockify noVNC/utils/websockify; then
-            echo "Error: Failed to clone websockify repository."
+            echo "Error: Failed to clone websockify repository." >&2
             return 1
         fi
         echo "Renaming vnc.html to index.html..."
@@ -249,7 +249,7 @@ install_novnc() {
             echo "Renaming vnc.html to index.html..."
             cp noVNC/vnc.html noVNC/index.html
         elif [ ! -f "noVNC/vnc.html" ]; then
-            echo "Warning: vnc.html does not exist. Please check your noVNC installation."
+            echo "Warning: vnc.html does not exist. Please check your noVNC installation." >&2
         fi
     fi
 }
@@ -280,7 +280,7 @@ EOF
         local scp_rc=0
         sshpass -p "$ROOT_PASSWORD" scp -o StrictHostKeyChecking=no -P "$QEMU_SSH_PORT" "$tmp_netcfg" root@127.0.0.1:/etc/network/interfaces || scp_rc=$?
         if [ "$scp_rc" -eq 5 ]; then
-            echo "Authorization error. Please check your root password."
+            echo "Authorization error. Please check your root password." >&2
         else
             break
         fi
@@ -288,7 +288,7 @@ EOF
     local ssh_rc=0
     sshpass -p "$ROOT_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$QEMU_SSH_PORT" root@127.0.0.1 "sed -i 's|nameserver.*|nameserver $NAME_SERVER|' /etc/resolv.conf" || ssh_rc=$?
     if [ "$ssh_rc" -ne 0 ]; then
-        echo "Error in change resolv.conf."
+        echo "Error in change resolv.conf." >&2
     else
         echo "resolv.conf updated."
         echo "Shutdown QEMU"
@@ -327,7 +327,7 @@ select_disks() {
 
 run_qemu() {
     if ! command -v qemu-system-x86_64 &>/dev/null; then
-        echo "Error: qemu-system-x86_64 not found. Install: apt install qemu-system-x86"
+        echo "Error: qemu-system-x86_64 not found. Install: apt install qemu-system-x86" >&2
         return 1
     fi
     get_network_info
@@ -341,7 +341,7 @@ run_qemu() {
             disk_index=$((disk_index + 1))
         done
         if [ ${#QEMU_DISK_ARGS[@]} -eq 0 ]; then
-            echo "Error: No suitable disks found on the system."
+            echo "Error: No suitable disks found on the system." >&2
             return 1
         fi
     fi
@@ -350,7 +350,7 @@ run_qemu() {
 
     if [ "$USE_UEFI" = "true" ]; then
         if [ ! -f "/usr/share/ovmf/OVMF.fd" ]; then
-            echo "Error: OVMF firmware not found. Install: apt install ovmf"
+            echo "Error: OVMF firmware not found. Install: apt install ovmf" >&2
             return 1
         fi
         QEMU_COMMON_ARGS=(-bios /usr/share/ovmf/OVMF.fd "${QEMU_COMMON_ARGS[@]}")
@@ -371,7 +371,7 @@ run_qemu() {
         while true; do
             # pgrep is used here because qemu runs with -daemonize (no direct PID)
             if ! pgrep -f "qemu-system-x86_64" >/dev/null; then
-                echo "QEMU process has stopped unexpectedly."
+                echo "QEMU process has stopped unexpectedly." >&2
                 kill "$NOVNC_PID" 2>/dev/null || true
                 echo "noVNC stopped."
                 reboot_server
@@ -407,7 +407,7 @@ run_qemu() {
         NOVNC_PID=$!
         while true; do
             if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-                echo "QEMU process has stopped unexpectedly."
+                echo "QEMU process has stopped unexpectedly." >&2
                 kill "$NOVNC_PID" 2>/dev/null || true
                 echo "noVNC stopped."
                 reboot_server
@@ -432,13 +432,13 @@ verify_iso_checksum() {
     local iso_path="${2:-/tmp/proxmox.iso}"
     echo "Downloading SHA256SUMS for verification..."
     if ! curl -sf "https://download.proxmox.com/iso/SHA256SUMS" -o /tmp/proxmox_sha256sums; then
-        echo "Warning: Could not download SHA256SUMS file. Skipping verification."
+        echo "Warning: Could not download SHA256SUMS file. Skipping verification." >&2
         return 0
     fi
     local expected_hash
     expected_hash=$(grep "$iso_name" /tmp/proxmox_sha256sums | awk '{print $1}')
     if [ -z "$expected_hash" ]; then
-        echo "Warning: No checksum found for $iso_name in SHA256SUMS. Skipping verification."
+        echo "Warning: No checksum found for $iso_name in SHA256SUMS. Skipping verification." >&2
         rm -f /tmp/proxmox_sha256sums
         return 0
     fi
@@ -505,7 +505,7 @@ select_proxmox_product_and_version() {
                     echo "Returning to main menu..."
                     return
                     ;;
-                *) echo "Invalid selection. Please, try again." ;;
+                *) echo "Invalid selection. Please, try again." >&2 ;;
             esac
         done
     fi
@@ -514,17 +514,17 @@ select_proxmox_product_and_version() {
     echo "Retrieving available versions for $PRODUCT_NAME..."
     local iso_page=""
     if ! iso_page=$(curl -sf 'https://download.proxmox.com/iso/'); then
-        echo "Error: Failed to retrieve ISO list from download.proxmox.com."
-        echo "Please check your network connection and try again."
+        echo "Error: Failed to retrieve ISO list from download.proxmox.com." >&2
+        echo "Please check your network connection and try again." >&2
         return
     fi
     if [ -z "$iso_page" ]; then
-        echo "Error: Empty response from download.proxmox.com."
+        echo "Error: Empty response from download.proxmox.com." >&2
         return
     fi
     AVAILABLE_ISOS=$(echo "$iso_page" | grep -oP "$GREP_PATTERN" | sort -V | tac | uniq || true)
     if [ -z "$AVAILABLE_ISOS" ]; then
-        echo "Error: No ISO versions found for $PRODUCT_NAME."
+        echo "Error: No ISO versions found for $PRODUCT_NAME." >&2
         return
     fi
     IFS=$'\n' read -r -d '' -a iso_array <<<"$AVAILABLE_ISOS" || true
@@ -551,7 +551,7 @@ select_proxmox_product_and_version() {
     elif [[ "$version_choice" =~ ^[0-9]+$ ]] && [ "$version_choice" -ge 1 ] && [ "$version_choice" -le "${#iso_array[@]}" ]; then
         selected_iso="${iso_array[$((version_choice - 1))]}"
     else
-        echo "Invalid selection, using the latest version."
+        echo "Invalid selection, using the latest version." >&2
         selected_iso="${iso_array[0]}"
     fi
 
@@ -559,13 +559,13 @@ select_proxmox_product_and_version() {
     local tmp_iso="/tmp/proxmox_download_$$.iso"
     echo "Downloading $ISO_URL..."
     if ! curl -f "$ISO_URL" -o "$tmp_iso" --progress-bar; then
-        echo "Error: Failed to download ISO from $ISO_URL"
+        echo "Error: Failed to download ISO from $ISO_URL" >&2
         rm -f "$tmp_iso"
         return
     fi
     if ! verify_iso_checksum "$selected_iso" "$tmp_iso"; then
-        echo "SHA256 checksum verification FAILED. The downloaded ISO may be corrupted or tampered with."
-        echo "Please try downloading again or verify manually."
+        echo "SHA256 checksum verification FAILED. The downloaded ISO may be corrupted or tampered with." >&2
+        echo "Please try downloading again or verify manually." >&2
         rm -f "$tmp_iso"
         return
     fi
@@ -639,7 +639,7 @@ show_menu() {
             7) exitScript ;;
             8) select_disks ;;
             *)
-                echo "Invalid selection. Please, try again."
+                echo "Invalid selection. Please, try again." >&2
                 continue
                 ;;
         esac
