@@ -167,11 +167,11 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 clear_list() {
-    pkill -f novnc_proxy || true
+    pkill -f novnc_proxy 2>/dev/null || echo "Note: no noVNC process to stop." >&2
     echo "All noVNC sessions have been terminated."
-    ssh-keygen -R "[127.0.0.1]:$QEMU_SSH_PORT" || true
+    ssh-keygen -R "[127.0.0.1]:$QEMU_SSH_PORT" 2>/dev/null || echo "Note: no SSH key to remove for port $QEMU_SSH_PORT." >&2
     echo "SSH key cache cleared for 127.0.0.1 port $QEMU_SSH_PORT."
-    printf "quit\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
+    printf "quit\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" 2>/dev/null || echo "Note: no QEMU monitor on port $QEMU_MONITOR_PORT." >&2
     echo "Sent shutdown command to QEMU."
 }
 
