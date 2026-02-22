@@ -687,47 +687,44 @@ install_novnc
 clear_list
 
 show_menu() {
-    echo "Welcome to Proxmox products installer in Rescue Mode for Hetzner"
-    echo "================================================================"
-    echo "Please choose an action:"
-    echo "1) Install Proxmox (VE, BS, MG)"
-    echo "2) Install Proxmox (VE, BS, MG) with UEFI"
-    echo "3) Run installed System in QEMU"
-    echo "4) Run installed System in QEMU with UEFI"
-    echo "5) Change VNC Password"
-    echo "6) Reboot"
-    echo "7) Exit"
-    echo "8) Manually select disks for QEMU"
-
     while true; do
+        print_logo
+        echo "Welcome to Proxmox products installer in Rescue Mode for Hetzner"
+        echo "================================================================"
+        echo "Please choose an action:"
+        echo "1) Manually select disks for QEMU"
+        echo "2) Install Proxmox (VE, BS, MG)"
+        echo "3) Install Proxmox (VE, BS, MG) with UEFI"
+        echo "4) Run installed System in QEMU"
+        echo "5) Run installed System in QEMU with UEFI"
+        echo "6) Change VNC Password"
+        echo "7) Reboot"
+        echo "8) Exit"
+
         read -r -p "Enter choice: " choice
         case "$choice" in
-            1) select_proxmox_product_and_version ;;
-            2)
+            1) select_disks ;;
+            2) select_proxmox_product_and_version ;;
+            3)
                 USE_UEFI=true
                 select_proxmox_product_and_version
                 ;;
-            3) runInstalledSystem ;;
-            4)
+            4) runInstalledSystem ;;
+            5)
                 USE_UEFI=true
                 runInstalledSystem
                 ;;
-            5) changeVncPassword ;;
-            6)
+            6) changeVncPassword ;;
+            7)
                 reboot_server
                 return
                 ;;
-            7) exitScript ;;
-            8) select_disks ;;
+            8) exitScript ;;
             *)
                 echo "Invalid selection. Please, try again." >&2
-                continue
                 ;;
         esac
-        show_menu
-        break
     done
 }
 
-print_logo
 show_menu
