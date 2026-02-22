@@ -341,6 +341,35 @@ select_disks() {
     print_logo
 }
 
+wait_for_qemu() {
+    local check_cmd="$1"
+    local prompt="$2"
+    local confirm_word="$3"
+    local stop_cmd="$4"
+    local on_done="$5"
+    while true; do
+        if ! eval "$check_cmd" >/dev/null 2>&1; then
+            echo "QEMU process has stopped unexpectedly." >&2
+            kill "$NOVNC_PID" 2>/dev/null || true
+            echo "noVNC stopped."
+            reboot_server
+            break
+        fi
+        local confirmation=""
+        read -r -t 5 -p "$prompt" confirmation || true
+        if [ "$confirmation" = "$confirm_word" ]; then
+            echo "QEMU shutting down..."
+            printf '%s\n' "$stop_cmd" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
+            kill "$NOVNC_PID" 2>/dev/null || true
+            echo "noVNC stopped."
+            if [ -n "$on_done" ]; then
+                eval "$on_done"
+            fi
+            break
+        fi
+    done
+}
+
 setup_vnc_and_novnc() {
     sleep 2
     echo "change vnc password $VNC_PASSWORD" | nc -q 1 127.0.0.1 "$QEMU_MONITOR_PORT" || true
@@ -400,27 +429,12 @@ run_qemu() {
         qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_CDROM_ARGS[@]}"
         echo -e "\nQemu running...."
         setup_vnc_and_novnc
-        while true; do
-            # pgrep is used here because qemu runs with -daemonize (no direct PID)
-            if ! pgrep -f "qemu-system-x86_64" >/dev/null; then
-                echo "QEMU process has stopped unexpectedly." >&2
-                kill "$NOVNC_PID" 2>/dev/null || true
-                echo "noVNC stopped."
-                reboot_server
-                break
-            fi
-            confirmation=""
-            read -r -t 5 -p "Installation in progress... Enter 'yes' when complete: " confirmation || true
-            if [ "$confirmation" = "yes" ]; then
-                echo "QEMU shutting down...."
-                printf "quit\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
-                kill "$NOVNC_PID" 2>/dev/null || true
-                echo "noVNC stopped."
-                print_logo
-                configure_network
-                break
-            fi
-        done
+        wait_for_qemu \
+            'pgrep -f "qemu-system-x86_64"' \
+            "Installation in progress... Enter 'yes' when complete: " \
+            "yes" \
+            "quit" \
+            "print_logo; configure_network"
     elif [ "$task" = "settings" ]; then
         local QEMU_NETWORK_SETTINGS=(-net "user,hostfwd=tcp::${QEMU_SSH_PORT}-:22" -net nic)
         qemu-system-x86_64 "${QEMU_COMMON_ARGS[@]}" "${QEMU_DISK_ARGS[@]}" "${QEMU_NETWORK_SETTINGS[@]}"
@@ -429,25 +443,12 @@ run_qemu() {
         QEMU_PID=$!
         echo -e "\nQemu running...."
         setup_vnc_and_novnc
-        while true; do
-            if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-                echo "QEMU process has stopped unexpectedly." >&2
-                kill "$NOVNC_PID" 2>/dev/null || true
-                echo "noVNC stopped."
-                reboot_server
-                break
-            fi
-            confirmation=""
-            read -r -t 5 -p "System running... Enter 'shutdown' to stop QEMU: " confirmation || true
-            if [ "$confirmation" = "shutdown" ]; then
-                echo "QEMU shutting down manually..."
-                printf "system_powerdown\n" | nc 127.0.0.1 "$QEMU_MONITOR_PORT" || true
-                kill "$NOVNC_PID" 2>/dev/null || true
-                echo "noVNC stopped."
-                reboot_server
-                break
-            fi
-        done
+        wait_for_qemu \
+            "kill -0 $QEMU_PID" \
+            "System running... Enter 'shutdown' to stop QEMU: " \
+            "shutdown" \
+            "system_powerdown" \
+            "reboot_server"
     fi
 }
 
