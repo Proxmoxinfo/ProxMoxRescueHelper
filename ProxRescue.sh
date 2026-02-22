@@ -361,11 +361,11 @@ run_qemu() {
     local QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:$QEMU_MONITOR_PORT,server,nowait")
 
     if [ "$USE_UEFI" = "true" ]; then
-        if [ ! -f "/usr/share/ovmf/OVMF.fd" ]; then
+        if [ ! -f "$OVMF_PATH" ]; then
             echo "Error: OVMF firmware not found. Install: apt install ovmf" >&2
             return 1
         fi
-        QEMU_COMMON_ARGS=(-bios /usr/share/ovmf/OVMF.fd "${QEMU_COMMON_ARGS[@]}")
+        QEMU_COMMON_ARGS=(-bios "$OVMF_PATH" "${QEMU_COMMON_ARGS[@]}")
     fi
     if [ "$task" = "install" ]; then
         local QEMU_CDROM_ARGS=(-drive "file=/tmp/proxmox.iso,index=0,media=cdrom" -boot d)
