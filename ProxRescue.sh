@@ -75,7 +75,7 @@ fi
 validate_ipv4() {
     local ip="$1"
     local IFS='.'
-    read -ra octets <<< "$ip"
+    read -ra octets <<<"$ip"
     [ ${#octets[@]} -eq 4 ] || return 1
     for octet in "${octets[@]}"; do
         [[ "$octet" =~ ^[0-9]+$ ]] && [ "$octet" -le 255 ] || return 1
@@ -476,9 +476,9 @@ run_qemu() {
     local task=$1
     build_qemu_args || return 1
     case "$task" in
-        install)    run_qemu_install ;;
-        settings)   run_qemu_settings ;;
-        runsystem)  run_qemu_runsystem ;;
+        install) run_qemu_install ;;
+        settings) run_qemu_settings ;;
+        runsystem) run_qemu_runsystem ;;
     esac
 }
 
