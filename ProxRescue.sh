@@ -193,11 +193,19 @@ ORIGINAL_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
     case $1 in
         -p | --password)
+            if [ -z "${2:-}" ]; then
+                echo "Error: -p/--password requires an argument." >&2
+                exit 1
+            fi
             VNC_PASSWORD="$2"
             shift
             shift
             ;;
         -vport)
+            if [ -z "${2:-}" ]; then
+                echo "Error: -vport requires a port number." >&2
+                exit 1
+            fi
             if [[ "$2" =~ ^[0-9]+$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 65535 ]; then
                 NOVNC_PORT="$2"
             else
@@ -228,6 +236,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -dns)
+            if [ -z "${2:-}" ]; then
+                echo "Error: -dns requires a DNS server address." >&2
+                exit 1
+            fi
             NAME_SERVER=""
             IFS=',' read -ra dns_list <<<"$2"
             for dns_ip in "${dns_list[@]}"; do
