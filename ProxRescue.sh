@@ -731,7 +731,7 @@ configure_network() {
     local tmp_netcfg tmp_linkcfg
     tmp_netcfg=$(mktemp /tmp/proxmox_network_config.XXXXXX)
     tmp_linkcfg=$(mktemp /tmp/proxmox_network_link.XXXXXX)
-    trap "rm -f '$tmp_netcfg' '$tmp_linkcfg'" RETURN
+    trap 'rm -f "$tmp_netcfg" "$tmp_linkcfg"' RETURN
     cat >"$tmp_linkcfg" <<EOF
 [Match]
 MACAddress=$MAC_ADDRESS
