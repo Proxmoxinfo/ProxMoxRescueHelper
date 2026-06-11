@@ -73,8 +73,7 @@ if [ -z "$VNC_PASSWORD" ]; then
         echo "Warning: VNC_PASSWORD_LENGTH must be between 8 and 20. Using default (10)." >&2
         VNC_PASSWORD_LENGTH=10
     fi
-    VNC_PASSWORD_ENTROPY_BYTES=256
-    VNC_PASSWORD=$(head -c "$VNC_PASSWORD_ENTROPY_BYTES" /dev/urandom | tr -dc A-Za-z0-9 | head -c "$VNC_PASSWORD_LENGTH")
+    VNC_PASSWORD=$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$VNC_PASSWORD_LENGTH" || true)
 fi
 if [ -z "$NOVNC_PORT" ]; then
     NOVNC_PORT=8080
