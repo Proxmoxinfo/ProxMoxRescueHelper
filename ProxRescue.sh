@@ -380,7 +380,7 @@ get_network_info() {
 }
 
 check_and_install_packages() {
-    local required_packages=(curl sshpass dialog git ncat)
+    local required_packages=(curl sshpass dialog git netcat-openbsd)
     local missing_packages=()
     for package in "${required_packages[@]}"; do
         if ! dpkg -s "$package" >/dev/null 2>&1; then
