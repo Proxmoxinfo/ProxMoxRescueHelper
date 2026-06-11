@@ -7,7 +7,12 @@ set -euo pipefail
 # to give the process a normal short command line.
 if [ -n "${BASH_EXECUTION_STRING:-}" ]; then
     tmp_script=$(mktemp /tmp/proxrescue.XXXXXX.sh)
-    printf '%s\n' "$BASH_EXECUTION_STRING" >"$tmp_script"
+    # Prepend self-cleanup so the temp file is removed once the re-execed
+    # script exits, regardless of how it terminates.
+    {
+        printf 'trap "rm -f %q" EXIT\n' "$tmp_script"
+        printf '%s\n' "$BASH_EXECUTION_STRING"
+    } >"$tmp_script"
     chmod +x "$tmp_script"
     exec bash "$tmp_script" "$@"
 fi
