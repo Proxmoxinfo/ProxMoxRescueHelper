@@ -41,7 +41,7 @@ curl -fsSL -o ProxRescue.sh https://raw.githubusercontent.com/Proxmoxinfo/ProxMo
 
 ## Вимоги
 
-У rescue-системі знадобляться такі пакунки:
+У rescue-системі знадобляться такі додатки:
 
 - `curl`
 - `sshpass`
