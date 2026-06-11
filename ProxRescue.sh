@@ -967,7 +967,7 @@ verify_iso_checksum() {
         return 1
     fi
     local expected_hash
-    expected_hash=$(grep "$iso_name" /tmp/proxmox_sha256sums | awk '{print $1}')
+    expected_hash=$(grep -F "$iso_name" /tmp/proxmox_sha256sums | awk '{print $1}')
     if [ -z "$expected_hash" ]; then
         echo "Warning: No checksum found for $iso_name in SHA256SUMS. Skipping verification." >&2
         rm -f /tmp/proxmox_sha256sums
