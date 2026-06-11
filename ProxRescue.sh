@@ -1120,8 +1120,13 @@ download_and_verify_iso() {
 
     if [ -f /tmp/proxmox.iso ]; then
         echo "Found existing /tmp/proxmox.iso"
-        read -r -p "Re-download? (y/N): " answer
-        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        if [ -n "$CLI_PRODUCT_CHOICE" ]; then
+            answer="y"
+            echo "Re-downloading (non-interactive run)."
+        else
+            read -r -p "Re-download? (Y/n): " answer || true
+        fi
+        if [[ "$answer" =~ ^[Nn]$ ]]; then
             return 0
         fi
     fi
