@@ -811,15 +811,18 @@ setup_vnc_and_novnc() {
     NOVNC_PID=$!
 }
 
+is_qemu_running() {
+    pgrep -f "qemu-system-x86_64" >/dev/null 2>&1
+}
+
 wait_for_qemu() {
-    local check_cmd="$1"
-    local prompt_msg="$2"
-    local confirm_word="$3"
-    local stop_cmd="$4"
-    local on_done="$5"
+    local prompt_msg="$1"
+    local confirm_word="$2"
+    local stop_cmd="$3"
+    local on_done="$4"
 
     while true; do
-        if ! eval "$check_cmd" >/dev/null 2>&1; then
+        if ! is_qemu_running; then
             echo "QEMU process has stopped unexpectedly." >&2
             kill "$NOVNC_PID" 2>/dev/null || true
             echo "noVNC stopped."
@@ -884,7 +887,6 @@ run_qemu_install() {
     echo -e "\nQemu running...."
     setup_vnc_and_novnc
     wait_for_qemu \
-        'pgrep -f "qemu-system-x86_64"' \
         "Installation in progress... Enter 'yes' when complete: " \
         "yes" \
         "quit" \
@@ -901,7 +903,6 @@ run_qemu_runsystem() {
     echo -e "\nQemu running...."
     setup_vnc_and_novnc
     wait_for_qemu \
-        'pgrep -f "qemu-system-x86_64"' \
         "System running... Enter 'shutdown' to stop QEMU: " \
         "shutdown" \
         "system_powerdown" \
