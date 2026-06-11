@@ -467,8 +467,13 @@ check_for_updates() {
         return
     fi
     echo "A new version is available: $remote_version (current: $VERSION_SCRIPT)"
+    if [ -n "$CLI_PRODUCT_CHOICE" ]; then
+        echo "Non-interactive run: skipping auto-update prompt. Run without flags to update."
+        rm -f "$tmp_remote"
+        return
+    fi
     local answer=""
-    read -r -p "Download and run the new version now? (Y/n): " answer
+    read -r -t 30 -p "Download and run the new version now? (Y/n): " answer || true
     if [[ "$answer" =~ ^[Yy]?$ ]]; then
         update_script "$tmp_remote"
     else
