@@ -80,7 +80,8 @@ if [ -z "$VNC_PASSWORD" ]; then
         echo "Warning: VNC_PASSWORD_LENGTH must be between 8 and 20. Using default (10)." >&2
         VNC_PASSWORD_LENGTH=10
     fi
-    VNC_PASSWORD=$(tr -dc A-Za-z0-9 </dev/urandom | head -c "$VNC_PASSWORD_LENGTH" || true)
+    VNC_PASSWORD_ENTROPY_BYTES=256
+    VNC_PASSWORD=$(head -c "$VNC_PASSWORD_ENTROPY_BYTES" /dev/urandom | tr -dc A-Za-z0-9 | head -c "$VNC_PASSWORD_LENGTH" || true)
 fi
 if [ -z "$NOVNC_PORT" ]; then
     NOVNC_PORT=8080
@@ -368,9 +369,9 @@ get_network_info() {
 
     MAC_ADDRESS=$(cat "/sys/class/net/${first_iface}/address")
 
-    IP_CIDR=$(ip addr show "$first_iface" | grep "inet\b" | head -n 1 | awk '{print $2}' || true)
+    IP_CIDR=$(ip addr show "$INTERFACE_NAME" | grep "inet\b" | head -n 1 | awk '{print $2}' || true)
     if [ -z "$IP_CIDR" ] || [[ ! "$IP_CIDR" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
-        echo "Error: No valid IP configuration found for interface $first_iface" >&2
+        echo "Error: No valid IP configuration found for interface $INTERFACE_NAME" >&2
         exit 1
     fi
     GATEWAY=$(ip route | grep default | awk '{print $3}' || true)
@@ -959,8 +960,7 @@ verify_iso_checksum() {
     local iso_name="$1"
     local iso_path="${2:-/tmp/proxmox.iso}"
     echo "Downloading SHA256SUMS for verification..."
-    # Always fetch checksums over HTTPS to prevent MITM tampering
-    if ! curl -sfL --connect-timeout 10 --max-time 30 "https://download.proxmox.com/iso/SHA256SUMS" -o /tmp/proxmox_sha256sums; then
+    if ! curl -sfL --connect-timeout 10 --max-time 30 "${PROXMOX_MIRROR}/iso/SHA256SUMS" -o /tmp/proxmox_sha256sums; then
         echo "Warning: Could not download SHA256SUMS file." >&2
         read -r -p "Continue without checksum verification? (y/N): " answer
         if [[ "$answer" =~ ^[Yy]$ ]]; then
