@@ -38,6 +38,8 @@ fi
 
 
 VERSION_SCRIPT="1.0"
+# Informational marker, may be grepped externally (like VERSION_SCRIPT)
+# shellcheck disable=SC2034
 SCRIPT_TYPE="self-contained"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
