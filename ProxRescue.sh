@@ -380,13 +380,16 @@ get_network_info() {
 }
 
 check_and_install_packages() {
-    local required_packages=(curl sshpass dialog git netcat-openbsd)
+    local required_packages=(curl sshpass dialog git)
     local missing_packages=()
     for package in "${required_packages[@]}"; do
         if ! dpkg -s "$package" >/dev/null 2>&1; then
             missing_packages+=("$package")
         fi
     done
+    if ! command -v nc >/dev/null 2>&1; then
+        missing_packages+=("netcat-openbsd")
+    fi
     if [ ${#missing_packages[@]} -eq 0 ]; then
         clear
         echo "$logo"
