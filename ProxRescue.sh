@@ -349,9 +349,9 @@ get_network_info() {
 
     MAC_ADDRESS=$(cat "/sys/class/net/${first_iface}/address")
 
-    IP_CIDR=$(ip addr show "$INTERFACE_NAME" | grep "inet\b" | head -n 1 | awk '{print $2}' || true)
+    IP_CIDR=$(ip addr show "$first_iface" | grep "inet\b" | head -n 1 | awk '{print $2}' || true)
     if [ -z "$IP_CIDR" ] || [[ ! "$IP_CIDR" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
-        echo "Error: No valid IP configuration found for interface $INTERFACE_NAME" >&2
+        echo "Error: No valid IP configuration found for interface $first_iface" >&2
         exit 1
     fi
     GATEWAY=$(ip route | grep default | awk '{print $3}' || true)
