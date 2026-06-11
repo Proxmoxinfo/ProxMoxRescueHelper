@@ -939,7 +939,8 @@ verify_iso_checksum() {
     local iso_name="$1"
     local iso_path="${2:-/tmp/proxmox.iso}"
     echo "Downloading SHA256SUMS for verification..."
-    if ! curl -sfL --connect-timeout 10 --max-time 30 "${PROXMOX_MIRROR}/iso/SHA256SUMS" -o /tmp/proxmox_sha256sums; then
+    # Always fetch checksums over HTTPS to prevent MITM tampering
+    if ! curl -sfL --connect-timeout 10 --max-time 30 "https://download.proxmox.com/iso/SHA256SUMS" -o /tmp/proxmox_sha256sums; then
         echo "Warning: Could not download SHA256SUMS file." >&2
         read -r -p "Continue without checksum verification? (y/N): " answer
         if [[ "$answer" =~ ^[Yy]$ ]]; then
