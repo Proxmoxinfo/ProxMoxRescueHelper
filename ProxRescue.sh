@@ -1,10 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# When run via `bash -c "$(curl ...)"`, this whole script becomes the
-# process's command line. Some procps tools (pgrep/pkill -f, used below)
-# crash on such an oversized /proc/*/cmdline, so re-exec from a temp file
-# to give the process a normal short command line.
 if [ -n "${BASH_EXECUTION_STRING:-}" ]; then
     tmp_script=$(mktemp /tmp/proxrescue.XXXXXX.sh)
     # Prepend self-cleanup so the temp file is removed once the re-execed
@@ -18,7 +14,7 @@ if [ -n "${BASH_EXECUTION_STRING:-}" ]; then
 fi
 
 # ============================================================================================
-#  ██████  ██████   ██████  ██   ██ ███    ███  ██████  ██   ██    ██ ███    ██ ███████  ██████
+# ██████  ██████   ██████  ██   ██ ███    ███  ██████  ██   ██    ██ ███    ██ ███████  ██████
 # ██   ██ ██   ██ ██    ██  ██ ██  ████  ████ ██    ██  ██ ██     ██ ████   ██ ██      ██    ██
 # ██████  ██████  ██    ██   ███   ██ ████ ██ ██    ██   ███      ██ ██ ██  ██ █████   ██    ██
 # ██      ██   ██ ██    ██  ██ ██  ██  ██  ██ ██    ██  ██ ██     ██ ██  ██ ██ ██      ██    ██
@@ -38,8 +34,6 @@ fi
 
 
 VERSION_SCRIPT="1.0"
-# Informational marker, may be grepped externally (like VERSION_SCRIPT)
-# shellcheck disable=SC2034
 SCRIPT_TYPE="self-contained"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
@@ -141,6 +135,7 @@ detect_boot_mode() {
     if [ -n "$USE_UEFI" ]; then
         BOOT_MODE_SOURCE="flag"
         echo "Boot mode: UEFI (forced via -uefi flag)"
+        ensure_ovmf || true
         return
     fi
     if [ "$BOOT_MODE_SOURCE" = "flag" ]; then
@@ -151,6 +146,7 @@ detect_boot_mode() {
         USE_UEFI=true
         BOOT_MODE_SOURCE="auto"
         echo "Boot mode auto-detected: UEFI"
+        ensure_ovmf || true
     else
         USE_UEFI=""
         BOOT_MODE_SOURCE="auto"
@@ -377,6 +373,22 @@ get_network_info() {
     GATEWAY=$(ip route | grep default | awk '{print $3}' || true)
     IP_ADDRESS=$(echo "$IP_CIDR" | cut -d'/' -f1)
     CIDR=$(echo "$IP_CIDR" | cut -d'/' -f2)
+}
+
+ensure_ovmf() {
+    if [ -f "$OVMF_PATH" ]; then
+        return 0
+    fi
+    echo "OVMF firmware not found at $OVMF_PATH. Installing package: ovmf"
+    apt update -qq || true
+    if ! apt install -y ovmf -qq; then
+        echo "Error: Failed to install ovmf package." >&2
+        return 1
+    fi
+    if [ ! -f "$OVMF_PATH" ]; then
+        echo "Error: OVMF firmware still not found at $OVMF_PATH after installing ovmf package." >&2
+        return 1
+    fi
 }
 
 check_and_install_packages() {
@@ -896,10 +908,7 @@ build_qemu_args() {
     QEMU_COMMON_ARGS=(-daemonize -enable-kvm -m "$QEMU_MEMORY" -vnc ":0,password=on" -monitor "telnet:127.0.0.1:$QEMU_MONITOR_PORT,server,nowait")
 
     if [ "$USE_UEFI" = "true" ]; then
-        if [ ! -f "$OVMF_PATH" ]; then
-            echo "Error: OVMF firmware not found at $OVMF_PATH. Install: apt install ovmf" >&2
-            return 1
-        fi
+        ensure_ovmf || return 1
         QEMU_COMMON_ARGS=(-bios "$OVMF_PATH" "${QEMU_COMMON_ARGS[@]}")
     fi
 }
@@ -1241,14 +1250,13 @@ toggle_uefi_mode() {
         USE_UEFI=true
         BOOT_MODE_SOURCE="manual"
         echo "Boot mode switched to: UEFI"
-        if [ ! -f "$OVMF_PATH" ]; then
-            echo "Warning: OVMF firmware not found at $OVMF_PATH. Install: apt install ovmf" >&2
-        fi
+        ensure_ovmf || true
     fi
 }
 
 show_menu() {
     while true; do
+        print_logo
         local mode_label source_label
         [ "$USE_UEFI" = "true" ] && mode_label="UEFI" || mode_label="Legacy BIOS"
         [ "$BOOT_MODE_SOURCE" = "auto" ] && source_label="auto-detected" || source_label="manually set"
